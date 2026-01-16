@@ -1,23 +1,20 @@
-# Dependencies
 node_modules/
 
-# Environment variables - NIKADA ne commitaj ovu datoteku!
 .env
 .env.local
 .env.*.local
 
-# IDE
+# Auto-generated config with secrets
+env-config.js
+
 .vscode/
 .idea/
 
-# OS files
 .DS_Store
 Thumbs.db
 
-# Logs
 *.log
 npm-debug.log*
 
-# Build output
 dist/
 build/

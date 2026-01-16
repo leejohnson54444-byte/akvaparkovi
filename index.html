@@ -1084,33 +1084,16 @@
           <h5 class="mb-3">Prijavite se za pristup Analytics Dashboardu</h5>
           <p class="text-muted mb-4">Za pregled analitičkih podataka potrebna je prijava s Google računom koji ima pristup Google Analytics.</p>
           
-          <!-- Google Sign-In Button -->
-          <div class="d-flex justify-content-center mb-3">
-            <div id="googleSignInButton">
-              <!-- Loading placeholder dok se Google Auth učitava -->
-              <div class="d-flex align-items-center justify-content-center" style="width: 280px; height: 44px; border: 1px solid #dadce0; border-radius: 4px;">
-                <span class="spinner-border spinner-border-sm text-primary me-2"></span>
-                <span class="text-muted">Učitavam Google prijavu...</span>
-              </div>
-            </div>
-          </div>
-          
-          <!-- Fallback poruka ako se Auth ne učita -->
-          <div id="googleAuthFallback" class="alert alert-warning" style="display: none;">
-            <i class="bi bi-exclamation-triangle me-2"></i>
-            Google prijava nije dostupna. <a href="javascript:location.reload()">Osvježite stranicu</a> ili pokušajte kasnije.
-          </div>
-          
-          <div class="divider d-flex align-items-center my-3">
-            <hr class="flex-grow-1">
-            <span class="mx-3 text-muted">ili</span>
-            <hr class="flex-grow-1">
-          </div>
-          
-          <!-- Alternativni popup gumb -->
-          <button class="btn btn-outline-primary" onclick="signInWithPopup()">
-            <i class="bi bi-box-arrow-in-right me-2"></i>Prijava putem popup-a
+          <!-- Glavni gumb za prijavu -->
+          <button id="googleSignInBtn" class="btn btn-primary btn-lg" onclick="signInWithGoogle()" disabled>
+            <span id="signInBtnContent">
+              <span class="spinner-border spinner-border-sm me-2"></span>
+              Učitavam...
+            </span>
           </button>
+          
+          <!-- Status poruka -->
+          <div id="authStatusMessage" class="mt-3" style="display: none;"></div>
         </div>
         <div class="modal-footer justify-content-center border-0">
           <small class="text-muted">Vaši podaci su sigurni i koriste se samo za pristup Analytics API-ju.</small>
@@ -1124,14 +1107,14 @@
   
   <!-- Google Identity Services Library for OAuth -->
   <script src="https://accounts.google.com/gsi/client"></script>
+  <!-- Environment config (generated from .env) - must be before config.js -->
+  <script src="env-config.js"></script>
   <script src="config.js"></script>
   
   <script>
-    // OAuth za Analytics pristup
-    let tokenClient;
-    let googleAuthReady = false;
-    let authInitAttempts = 0;
-    const MAX_AUTH_ATTEMPTS = 50; // Max 5 sekundi (50 * 100ms)
+    // OAuth za Analytics pristup - pojednostavljena verzija
+    let tokenClient = null;
+    let authError = null;
     
     const SCOPES = [
       'https://www.googleapis.com/auth/analytics.readonly',
@@ -1139,53 +1122,96 @@
       'https://www.googleapis.com/auth/userinfo.email'
     ].join(' ');
     
-    // Inicijaliziraj Google Auth kada se library učita
-    function initGoogleAuth() {
-      authInitAttempts++;
+    // Ažuriraj status u modalu
+    function updateAuthStatus(message, type = 'info') {
+      const statusEl = document.getElementById('authStatusMessage');
+      const btnEl = document.getElementById('googleSignInBtn');
+      const btnContent = document.getElementById('signInBtnContent');
       
-      if (typeof google === 'undefined' || typeof google.accounts === 'undefined') {
-        if (authInitAttempts < MAX_AUTH_ATTEMPTS) {
-          setTimeout(initGoogleAuth, 100);
-        } else {
-          console.error('Google Auth library nije se uspjela učitati nakon 5 sekundi');
-          googleAuthReady = false;
-          // Prikaži fallback gumb ako je modal otvoren
-          const fallbackMsg = document.getElementById('googleAuthFallback');
-          if (fallbackMsg) fallbackMsg.style.display = 'block';
-        }
+      if (statusEl) {
+        statusEl.style.display = 'block';
+        statusEl.className = `mt-3 alert alert-${type}`;
+        statusEl.innerHTML = message;
+      }
+      
+      if (type === 'success' && btnEl) {
+        btnEl.disabled = false;
+        btnContent.innerHTML = '<i class="bi bi-google me-2"></i>Prijava s Google računom';
+      } else if (type === 'danger' && btnEl) {
+        btnEl.disabled = true;
+        btnContent.innerHTML = '<i class="bi bi-exclamation-triangle me-2"></i>Prijava nedostupna';
+      }
+    }
+    
+    // Inicijaliziraj Google Auth
+    function initGoogleAuth() {
+      const btnEl = document.getElementById('googleSignInBtn');
+      const btnContent = document.getElementById('signInBtnContent');
+      
+      // 1. Provjeri je li CONFIG definiran i ima CLIENT_ID
+      if (typeof CONFIG === 'undefined') {
+        authError = 'CONFIG nije definiran. Provjerite config.js datoteku.';
+        console.error(authError);
+        updateAuthStatus('<i class="bi bi-x-circle me-2"></i>' + authError, 'danger');
         return;
       }
       
+      if (!CONFIG.GOOGLE_CLIENT_ID || CONFIG.GOOGLE_CLIENT_ID === '') {
+        authError = 'GOOGLE_CLIENT_ID nije postavljen u config.js! Morate kreirati OAuth Client ID na Google Cloud Console.';
+        console.error(authError);
+        updateAuthStatus(
+          '<i class="bi bi-exclamation-triangle me-2"></i><strong>Konfiguracija potrebna!</strong><br><br>' +
+          'Google Client ID nije postavljen. Da biste omogućili prijavu:<br>' +
+          '1. Idite na <a href="https://console.cloud.google.com/apis/credentials" target="_blank">Google Cloud Console</a><br>' +
+          '2. Kreirajte OAuth 2.0 Client ID<br>' +
+          '3. Dodajte ga u <code>config.js</code> datoteku',
+          'warning'
+        );
+        return;
+      }
+      
+      // 2. Provjeri je li Google library učitan
+      if (typeof google === 'undefined' || typeof google.accounts === 'undefined') {
+        // Pokušaj ponovno za 500ms, max 10 puta
+        if (!window.authRetryCount) window.authRetryCount = 0;
+        window.authRetryCount++;
+        
+        if (window.authRetryCount < 10) {
+          setTimeout(initGoogleAuth, 500);
+          return;
+        }
+        
+        authError = 'Google Identity Services library se nije uspjela učitati. Moguće je da je blokirana od strane ad-blockera.';
+        console.error(authError);
+        updateAuthStatus('<i class="bi bi-wifi-off me-2"></i>' + authError, 'danger');
+        return;
+      }
+      
+      // 3. Inicijaliziraj token client
       try {
-        // OAuth token client za programatski pristup
         tokenClient = google.accounts.oauth2.initTokenClient({
           client_id: CONFIG.GOOGLE_CLIENT_ID,
           scope: SCOPES,
           callback: handleTokenResponse,
         });
         
-        // Renderaj Google Sign-In gumb u modal
-        google.accounts.id.initialize({
-          client_id: CONFIG.GOOGLE_CLIENT_ID,
-          callback: handleGoogleSignInResponse
-        });
+        // Uspješno inicijalizirano
+        console.log('✅ Google Auth uspješno inicijaliziran');
+        authError = null;
         
-        google.accounts.id.renderButton(
-          document.getElementById('googleSignInButton'),
-          { 
-            theme: 'outline', 
-            size: 'large',
-            text: 'signin_with',
-            shape: 'rectangular',
-            width: 280
-          }
-        );
+        if (btnEl) {
+          btnEl.disabled = false;
+          btnContent.innerHTML = '<i class="bi bi-google me-2"></i>Prijava s Google računom';
+        }
         
-        googleAuthReady = true;
-        console.log('Google Auth uspješno inicijaliziran');
+        // Sakrij status poruku ako je sve OK
+        const statusEl = document.getElementById('authStatusMessage');
+        if (statusEl) statusEl.style.display = 'none';
+        
       } catch (error) {
-        console.error('Greška pri inicijalizaciji Google Auth:', error);
-        googleAuthReady = false;
+        authError = 'Greška pri inicijalizaciji: ' + error.message;
+        console.error(authError);
+        updateAuthStatus('<i class="bi bi-x-circle me-2"></i>' + authError, 'danger');
       }
     }
     
@@ -1201,57 +1227,29 @@
       const expires = sessionStorage.getItem('token_expires');
       
       if (token && expires && Date.now() < parseInt(expires)) {
-        // Već je prijavljen, idi na analytics
         window.location.href = 'analytics.html';
       } else {
-        // Otvori modal za prijavu
         const loginModal = new bootstrap.Modal(document.getElementById('loginModal'));
         loginModal.show();
       }
     }
     
-    // Prijava putem popup-a (alternativna metoda)
-    function signInWithPopup() {
-      if (tokenClient && googleAuthReady) {
-        tokenClient.requestAccessToken({ prompt: 'consent' });
-      } else if (!googleAuthReady && authInitAttempts >= MAX_AUTH_ATTEMPTS) {
-        // Auth se nije uspio učitati - ponudi reload
-        if (confirm('Google prijava nije dostupna. Moguće je da je mreža spora ili je Google servis blokiran.\n\nŽelite li ponovno učitati stranicu?')) {
-          location.reload();
-        }
-      } else {
-        // Još se učitava - prikaži loading indicator
-        const btn = event.target.closest('button');
-        const originalText = btn.innerHTML;
-        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Učitavam...';
-        btn.disabled = true;
-        
-        // Pokušaj ponovno nakon kratke pauze
-        setTimeout(() => {
-          btn.innerHTML = originalText;
-          btn.disabled = false;
-          if (tokenClient && googleAuthReady) {
-            tokenClient.requestAccessToken({ prompt: 'consent' });
-          } else {
-            alert('Google prijava još nije spremna. Molimo pričekajte nekoliko sekundi i pokušajte ponovno.');
-          }
-        }, 2000);
+    // Glavna funkcija za prijavu
+    function signInWithGoogle() {
+      if (!tokenClient) {
+        alert('Google prijava nije inicijalizirana. Provjerite konzolu za greške.');
+        return;
       }
-    }
-    
-    // Handle Google Sign-In button response (ID token)
-    async function handleGoogleSignInResponse(response) {
-      // Google Sign-In gumb vraća ID token, trebamo ga zamijeniti za access token
-      // Za Analytics API trebamo OAuth access token, pa ćemo pokrenuti token flow
-      if (tokenClient) {
-        tokenClient.requestAccessToken({ prompt: 'none' });
-      }
+      
+      // Pokreni OAuth flow
+      tokenClient.requestAccessToken({ prompt: 'consent' });
     }
     
     // Handle OAuth token response
     async function handleTokenResponse(response) {
       if (response.error) {
-        alert('Greška pri autentifikaciji: ' + response.error);
+        console.error('OAuth greška:', response.error);
+        updateAuthStatus('<i class="bi bi-x-circle me-2"></i>Greška: ' + response.error, 'danger');
         return;
       }
       
@@ -1261,7 +1259,7 @@
       sessionStorage.setItem('google_access_token', accessToken);
       sessionStorage.setItem('token_expires', Date.now() + (response.expires_in * 1000));
       
-      // Zatvori modal ako je otvoren
+      // Zatvori modal
       const loginModalEl = document.getElementById('loginModal');
       const loginModal = bootstrap.Modal.getInstance(loginModalEl);
       if (loginModal) {

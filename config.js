@@ -1,4 +1,13 @@
+// Konfiguracija - vrijednosti se injektiraju iz environment varijabli
+// NE UNOSITE TAJNE PODATKE OVDJE!
+// Za lokalni razvoj: koristite .env datoteku
+// Za produkciju: postavite varijable u Vercel Dashboard
+
 const CONFIG = {
+    // Ove vrijednosti se zamjenjuju tijekom builda na Vercelu
+    // ili se čitaju iz window.__ENV__ objekta
+    GOOGLE_CLIENT_ID: window.__ENV__?.GOOGLE_CLIENT_ID || '',
+    GA_PROPERTY_ID: window.__ENV__?.GA_PROPERTY_ID || '',
     
     SCOPES: [
         'https://www.googleapis.com/auth/analytics.readonly',

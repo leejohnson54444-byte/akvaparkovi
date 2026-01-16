@@ -1,0 +1,12 @@
+{
+  "name": "akvaparkovi",
+  "version": "1.0.0",
+  "description": "Akvaparkovi u Hrvatskoj",
+  "scripts": {
+    "generate-env": "node generate-env.js",
+    "build": "node generate-env.js"
+  },
+  "devDependencies": {
+    "dotenv": "^16.3.1"
+  }
+}
