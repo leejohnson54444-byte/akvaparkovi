@@ -1385,11 +1385,31 @@
             recommendations.sort((a, b) => b.similarity - a.similarity);
             const topRecommendations = recommendations.slice(0, 3);
 
-            const dataSourceBadge = hasRealData 
-                ? '<span class="badge bg-success mb-3"><i class="bi bi-check-circle me-1"></i>Bazirano na stvarnim podacima</span>'
-                : '<span class="badge bg-warning text-dark mb-3"><i class="bi bi-exclamation-triangle me-1"></i>Nema dovoljno podataka za personalizaciju</span>';
+            // Ako nema stvarnih podataka, prikaži poruku umjesto lažnih preporuka
+            if (!hasRealData) {
+                container.innerHTML = `
+                    <div class="col-12">
+                        <div class="alert alert-info text-center p-5">
+                            <i class="bi bi-info-circle" style="font-size: 3rem; color: #0dcaf0;"></i>
+                            <h4 class="mt-3">Nema dovoljno podataka za personalizirane preporuke</h4>
+                            <p class="text-muted mb-0">
+                                Sustav preporuka zahtijeva stvarne podatke o vašim interakcijama na stranici.<br>
+                                Pregledajte akvaparkove i provedite vrijeme na stranici kako bismo mogli analizirati vaše preferencije.
+                            </p>
+                            <hr>
+                            <p class="mb-0"><small>Kada budete imali dovoljno aktivnosti, ovdje ćete vidjeti personalizirane preporuke bazirane na vašem ponašanju.</small></p>
+                        </div>
+                    </div>
+                `;
+                return;
+            }
 
-            container.innerHTML = dataSourceBadge + topRecommendations.map((park, index) => `
+            // Prikaži preporuke samo ako imamo stvarne podatke
+            container.innerHTML = `
+                <div class="col-12 mb-3">
+                    <span class="badge bg-success"><i class="bi bi-check-circle me-1"></i>Bazirano na stvarnim podacima iz Google Analytics</span>
+                </div>
+            ` + topRecommendations.map((park, index) => `
                 <div class="col-md-4">
                     <div class="recommendation-card">
                         <div class="recommendation-image">
@@ -1530,20 +1550,27 @@
                 }));
 
             } else {
-                // Fallback na prazne podatke
-                processedFunnel = funnelSteps.map(step => ({
-                    step: step.step,
-                    users: 0,
-                    views: 0,
-                    percentage: 0
-                }));
+                // Nema podataka - prikaži poruku
+                processedFunnel = [];
             }
 
-            const dataSourceBadge = hasRealData 
-                ? '<div class="alert alert-success mb-3"><i class="bi bi-check-circle me-2"></i>Podaci dohvaćeni iz Google Analytics API-ja</div>'
-                : '<div class="alert alert-warning mb-3"><i class="bi bi-exclamation-triangle me-2"></i>Nema dovoljno podataka za funnel analizu</div>';
+            // Ako nema stvarnih podataka, prikaži poruku umjesto praznog funnela
+            if (!hasRealData || processedFunnel.length === 0 || processedFunnel[0].users === 0) {
+                container.innerHTML = `
+                    <div class="alert alert-info text-center p-4">
+                        <i class="bi bi-funnel" style="font-size: 2rem; color: #0dcaf0;"></i>
+                        <h5 class="mt-3">Nema dovoljno podataka za funnel analizu</h5>
+                        <p class="text-muted mb-0">Potrebno je više korisničkih sesija za prikaz funnel analize.</p>
+                    </div>
+                `;
+                document.getElementById('funnelInterpretation').textContent = 'Nema dovoljno podataka za interpretaciju.';
+                document.getElementById('funnelUX').textContent = 'Pričekajte dok se prikupi više podataka o korisničkom ponašanju.';
+                return;
+            }
 
-            container.innerHTML = dataSourceBadge + processedFunnel.map((step, index) => `
+            container.innerHTML = `
+                <div class="alert alert-success mb-3"><i class="bi bi-check-circle me-2"></i>Podaci dohvaćeni iz Google Analytics API-ja</div>
+            ` + processedFunnel.map((step, index) => `
                 <div class="funnel-step">
                     <div class="funnel-label">${step.step}</div>
                     <div class="funnel-bar" style="width: ${Math.max(step.percentage, 5)}%;">
@@ -1732,19 +1759,29 @@
                     }
                 ];
             } else {
-                // Fallback - prazni podaci
-                retentionData = [
-                    { cohort: 'Svi korisnici', day1: 0, day7: 0, day14: 0, day30: 0 },
-                    { cohort: 'Desktop', day1: 0, day7: 0, day14: 0, day30: 0 },
-                    { cohort: 'Mobile', day1: 0, day7: 0, day14: 0, day30: 0 }
-                ];
+                // Nema podataka
+                retentionData = [];
             }
 
-            const dataSourceRow = hasRealData 
-                ? `<tr><td colspan="5" class="text-success"><i class="bi bi-check-circle me-2"></i>Podaci bazirani na Google Analytics API (novi vs. vraćeni korisnici)</td></tr>`
-                : `<tr><td colspan="5" class="text-warning"><i class="bi bi-exclamation-triangle me-2"></i>Nema dovoljno podataka</td></tr>`;
+            // Ako nema stvarnih podataka, prikaži poruku umjesto prazne tablice
+            if (!hasRealData || retentionData.length === 0) {
+                tableBody.innerHTML = `
+                    <tr>
+                        <td colspan="5" class="text-center p-4">
+                            <i class="bi bi-arrow-repeat" style="font-size: 2rem; color: #0dcaf0;"></i>
+                            <h5 class="mt-3">Nema dovoljno podataka za retention analizu</h5>
+                            <p class="text-muted mb-0">Potrebno je više vremena i korisničkih posjeta za analizu vraćanja korisnika.</p>
+                        </td>
+                    </tr>
+                `;
+                document.getElementById('retentionInterpretation').textContent = 'Nema dovoljno podataka za interpretaciju retention analize.';
+                document.getElementById('retentionUX').textContent = 'Pričekajte dok se prikupi više podataka o vraćanju korisnika.';
+                return;
+            }
 
-            tableBody.innerHTML = dataSourceRow + retentionData.map(row => `
+            tableBody.innerHTML = `
+                <tr><td colspan="5" class="text-success"><i class="bi bi-check-circle me-2"></i>Podaci bazirani na Google Analytics API (novi vs. vraćeni korisnici)</td></tr>
+            ` + retentionData.map(row => `
                 <tr>
                     <td><strong>${row.cohort}</strong></td>
                     <td class="retention-cell ${getRetentionClass(row.day1)}">${row.day1}%</td>
@@ -1962,17 +1999,27 @@
                 paths = paths.slice(0, 5);
 
             } else {
-                // Fallback - prazni podaci
-                paths = [
-                    { rank: 1, flow: ['Nema podataka'], count: 0, unusual: false }
-                ];
+                // Nema podataka
+                paths = [];
             }
 
-            const dataSourceBadge = hasRealData 
-                ? '<div class="alert alert-success mb-3"><i class="bi bi-check-circle me-2"></i>Putanje generirane iz Google Analytics API podataka</div>'
-                : '<div class="alert alert-warning mb-3"><i class="bi bi-exclamation-triangle me-2"></i>Nema dovoljno podataka za path analizu</div>';
+            // Ako nema stvarnih podataka, prikaži poruku umjesto lažnih putanja
+            if (!hasRealData || paths.length === 0 || (paths.length === 1 && paths[0].count === 0)) {
+                container.innerHTML = `
+                    <div class="alert alert-info text-center p-4">
+                        <i class="bi bi-signpost-2" style="font-size: 2rem; color: #0dcaf0;"></i>
+                        <h5 class="mt-3">Nema dovoljno podataka za path analizu</h5>
+                        <p class="text-muted mb-0">Potrebno je više korisničkih sesija za analizu navigacijskih putanja.</p>
+                    </div>
+                `;
+                document.getElementById('pathInterpretation').textContent = 'Nema dovoljno podataka za interpretaciju.';
+                document.getElementById('pathUX').textContent = 'Pričekajte dok se prikupi više podataka o korisničkim putanjama.';
+                return;
+            }
 
-            container.innerHTML = dataSourceBadge + paths.map(path => `
+            container.innerHTML = `
+                <div class="alert alert-success mb-3"><i class="bi bi-check-circle me-2"></i>Putanje generirane iz Google Analytics API podataka</div>
+            ` + paths.map(path => `
                 <div class="path-item ${path.unusual ? 'border-warning' : ''}">
                     <div class="path-rank">${path.rank}</div>
                     <div class="path-flow">
@@ -1987,26 +2034,19 @@
             `).join('');
 
             // Generiraj interpretaciju na temelju stvarnih podataka
-            let interpretation = '';
-            let uxImplication = '';
+            const topPath = paths[0];
+            const unusualPaths = paths.filter(p => p.unusual);
+            
+            const interpretation = `Najčešća putanja (${topPath.count} korisnika) vodi: ${topPath.flow.join(' → ')}. ` +
+                `${unusualPaths.length > 0 ? `Uočeno je ${unusualPaths.length} kratkih putanja koje mogu ukazivati na bounce.` : 'Većina korisnika prolazi kroz više stranica.'}`;
 
-            if (hasRealData && paths.length > 0 && paths[0].count > 0) {
-                const topPath = paths[0];
-                const unusualPaths = paths.filter(p => p.unusual);
-                
-                interpretation = `Najčešća putanja (${topPath.count} korisnika) vodi: ${topPath.flow.join(' → ')}. ` +
-                    `${unusualPaths.length > 0 ? `Uočeno je ${unusualPaths.length} kratkih putanja koje mogu ukazivati na bounce.` : 'Većina korisnika prolazi kroz više stranica.'}`;
-
-                if (unusualPaths.length > 0) {
-                    uxImplication = `Za korisnike s kratkim putanjama, razmislite o dodavanju interaktivnih elemenata i CTA gumba ` +
-                        `koji će ih potaknuti na daljnje istraživanje stranice. Poboljšajte internal linking.`;
-                } else {
-                    uxImplication = `Korisnici pokazuju dobru navigaciju kroz stranicu. Nastavite optimizirati sadržaj i ` +
-                        `pratite koje stranice generiraju najviše konverzija.`;
-                }
+            let uxImplication;
+            if (unusualPaths.length > 0) {
+                uxImplication = `Za korisnike s kratkim putanjama, razmislite o dodavanju interaktivnih elemenata i CTA gumba ` +
+                    `koji će ih potaknuti na daljnje istraživanje stranice. Poboljšajte internal linking.`;
             } else {
-                interpretation = 'Nema dovoljno podataka za detaljnu path analizu. Potrebno je više prometa na stranici.';
-                uxImplication = 'Fokusirajte se na povećanje prometa i implementirajte praćenje custom events-a za detaljniju analizu.';
+                uxImplication = `Korisnici pokazuju dobru navigaciju kroz stranicu. Nastavite optimizirati sadržaj i ` +
+                    `pratite koje stranice generiraju najviše konverzija.`;
             }
 
             document.getElementById('pathInterpretation').textContent = interpretation;
