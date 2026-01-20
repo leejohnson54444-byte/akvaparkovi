@@ -1156,10 +1156,58 @@
             }
         }
 
+        // Dohvati navigation click events za bolje praćenje sekcija (hash navigacija)
+        async function fetchNavigationEventsForPages() {
+            const propertyId = CONFIG.GA_PROPERTY_ID;
+            const url = `https://analyticsdata.googleapis.com/v1beta/properties/${propertyId}:runReport`;
+
+            const requestBody = {
+                dateRanges: [{ startDate: '30daysAgo', endDate: 'today' }],
+                dimensions: [
+                    { name: 'eventName' },
+                    { name: 'customEvent:section_name' }
+                ],
+                metrics: [
+                    { name: 'eventCount' }
+                ],
+                dimensionFilter: {
+                    filter: {
+                        fieldName: 'eventName',
+                        inListFilter: {
+                            // Uključi sve varijante event naziva
+                            values: ['navigation_click', 'section_click', 'section_view', 'page_section_view']
+                        }
+                    }
+                },
+                orderBys: [
+                    { metric: { metricName: 'eventCount' }, desc: true }
+                ],
+                limit: 20
+            };
+
+            try {
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(requestBody)
+                });
+
+                if (!response.ok) return null;
+                return await response.json();
+            } catch (error) {
+                console.warn('Error fetching navigation events:', error);
+                return null;
+            }
+        }
+
         async function fetchPageViewsData() {
             const propertyId = CONFIG.GA_PROPERTY_ID;
             const url = `https://analyticsdata.googleapis.com/v1beta/properties/${propertyId}:runReport`;
 
+            // Dohvati i page views i navigation events za kompletnu sliku
             const requestBody = {
                 dateRanges: [{ startDate: '30daysAgo', endDate: 'today' }],
                 // Include pageLocation so we can detect fragment/hash (#about, #parks, etc.)
@@ -1173,7 +1221,7 @@
                 orderBys: [
                     { metric: { metricName: 'screenPageViews' }, desc: true }
                 ],
-                limit: 10
+                limit: 50 // Povećano da dohvatimo više stranica
             };
 
             try {
@@ -1393,9 +1441,10 @@
             let pages = [];
             try {
                 const pagesData = await fetchPageViewsData();
+                const pageMap = {};
+                
                 if (pagesData && pagesData.rows) {
                     // Aggregate and normalize page names (dedupe Početna / index.html etc.)
-                    const pageMap = {};
                     pagesData.rows.forEach(row => {
                         // prefer pageLocation (index 1) if available so we can detect fragments (#about)
                         const raw = (row.dimensionValues[1] && row.dimensionValues[1].value) || row.dimensionValues[0].value || '';
@@ -1407,12 +1456,45 @@
                         const views = parseInt(row.metricValues[0].value) || 0;
                         pageMap[name] = (pageMap[name] || 0) + views;
                     });
-
-                    pages = Object.keys(pageMap).map(name => ({ name, views: pageMap[name] }))
-                        .filter(p => p.views > 0) // Remove zero-view pages
-                        .sort((a, b) => b.views - a.views)
-                        .slice(0, 5);
                 }
+                
+                // Dodatno - dohvati navigation events za sekcije (hash navigacija)
+                try {
+                    const navEventsData = await fetchNavigationEventsForPages();
+                    if (navEventsData && navEventsData.rows) {
+                        navEventsData.rows.forEach(row => {
+                            const sectionName = row.dimensionValues[1]?.value || '';
+                            const eventCount = parseInt(row.metricValues[0].value) || 0;
+                            
+                            // Mapiraj section_name na page name
+                            const sectionMap = {
+                                'Početna': 'Početna',
+                                'O nama': 'O nama', 
+                                'Akvaparkovi': 'Akvaparkovi',
+                                'Cijene': 'Cijene',
+                                'Kontakt': 'Kontakt',
+                                'home': 'Početna',
+                                'about': 'O nama',
+                                'parks': 'Akvaparkovi',
+                                'prices': 'Cijene',
+                                'contact': 'Kontakt'
+                            };
+                            
+                            const pageName = sectionMap[sectionName] || sectionName;
+                            if (pageName && pageName !== '(not set)') {
+                                // Dodaj navigation events kao "virtualne" page views
+                                pageMap[pageName] = (pageMap[pageName] || 0) + eventCount;
+                            }
+                        });
+                    }
+                } catch (e) {
+                    console.warn('Could not fetch navigation events for pages:', e);
+                }
+
+                pages = Object.keys(pageMap).map(name => ({ name, views: pageMap[name] }))
+                    .filter(p => p.views > 0) // Remove zero-view pages
+                    .sort((a, b) => b.views - a.views)
+                    .slice(0, 5);
             } catch (error) {
                 console.error('Error fetching page views:', error);
             }
@@ -1502,6 +1584,12 @@
                                 filter: {
                                     fieldName: 'eventName',
                                     stringFilter: { matchType: 'EXACT', value: 'section_click' }
+                                }
+                            },
+                            {
+                                filter: {
+                                    fieldName: 'eventName',
+                                    stringFilter: { matchType: 'EXACT', value: 'navigation_click' }
                                 }
                             },
                             {
@@ -2419,19 +2507,46 @@
             
             let pathDataAPI = null;
             let eventFlowData = null;
+            let navEventsData = null;
             let hasRealData = false;
 
             try {
-                [pathDataAPI, eventFlowData] = await Promise.all([
+                [pathDataAPI, eventFlowData, navEventsData] = await Promise.all([
                     fetchPathData(),
-                    fetchEventFlowData()
+                    fetchEventFlowData(),
+                    fetchNavigationSequence()
                 ]);
             } catch (error) {
                 console.error('Error fetching path data:', error);
             }
 
             let paths = [];
+            
+            // Struktura za praćenje slijeda navigacije po korisnicima
+            const userFlows = {};
 
+            // 1. Prvo analiziraj navigation_click events koji imaju section_name
+            if (navEventsData && navEventsData.rows && navEventsData.rows.length > 0) {
+                hasRealData = true;
+                
+                // Grupiraj events po sessionu/korisniku i vremenu
+                navEventsData.rows.forEach(row => {
+                    const sectionName = row.dimensionValues[0]?.value || '';
+                    const dateHour = row.dimensionValues[1]?.value || '0';
+                    const eventCount = parseInt(row.metricValues[0].value) || 0;
+                    
+                    if (sectionName && sectionName !== '(not set)') {
+                        const normalizedSection = normalizePageName(sectionName) || sectionName;
+                        if (!userFlows[dateHour]) {
+                            userFlows[dateHour] = { sections: [], count: eventCount };
+                        }
+                        userFlows[dateHour].sections.push(normalizedSection);
+                        userFlows[dateHour].count = Math.max(userFlows[dateHour].count, eventCount);
+                    }
+                });
+            }
+
+            // 2. Dodaj podatke iz landing page → page location
             if (pathDataAPI && pathDataAPI.rows && pathDataAPI.rows.length > 0) {
                 hasRealData = true;
 
@@ -2464,83 +2579,101 @@
                     pathMap[pathKey].count += sessions;
                 });
 
-                // Uključi lokalne događaje iz sessionStorage kao tranzicije (korisno za testiranje anchor/modal klikova)
+                // 3. Koristi event flow podatke za proširivanje putanja
+                const extendedPaths = {};
+                
+                if (eventFlowData && eventFlowData.rows) {
+                    // Grupiraj events po stranici
+                    const pageEvents = {};
+                    eventFlowData.rows.forEach(row => {
+                        const eventName = row.dimensionValues[0]?.value || '';
+                        const pageLocation = row.dimensionValues[1]?.value || '';
+                        const eventCount = parseInt(row.metricValues[0].value) || 0;
+                        
+                        const normalizedPage = normalizePageName(pageLocation);
+                        if (normalizedPage && eventName !== 'page_view' && eventName !== 'session_start' && eventName !== 'first_visit') {
+                            if (!pageEvents[normalizedPage]) {
+                                pageEvents[normalizedPage] = [];
+                            }
+                            pageEvents[normalizedPage].push({ event: eventName, count: eventCount });
+                        }
+                    });
+
+                    // Proširi putanje s najčešćim sljedećim koracima
+                    Object.values(pathMap).forEach(path => {
+                        const flow = [path.landing, path.visited];
+                        
+                        // Pokušaj pronaći sljedeći korak na temelju event flow-a
+                        if (pageEvents[path.visited]) {
+                            const nextEvents = pageEvents[path.visited].sort((a, b) => b.count - a.count);
+                            
+                            // Dodaj sljedeće korake iz navigation_click events
+                            nextEvents.forEach(evt => {
+                                if (evt.event === 'navigation_click' || evt.event === 'click') {
+                                    // Pronađi sljedeću stranicu iz pathMap
+                                    const nextPaths = Object.values(pathMap).filter(p => p.landing === path.visited);
+                                    if (nextPaths.length > 0 && flow.length < 5) {
+                                        const bestNext = nextPaths.sort((a, b) => b.count - a.count)[0];
+                                        if (!flow.includes(bestNext.visited)) {
+                                            flow.push(bestNext.visited);
+                                        }
+                                    }
+                                }
+                            });
+                        }
+
+                        const pathKey = flow.join('->');
+                        if (!extendedPaths[pathKey]) {
+                            extendedPaths[pathKey] = { flow: flow, count: path.count };
+                        } else {
+                            extendedPaths[pathKey].count += path.count;
+                        }
+                    });
+                }
+
+                // Uključi lokalne događaje iz sessionStorage kao tranzicije
                 try {
                     const localEvents = JSON.parse(sessionStorage.getItem('local_section_events') || '[]');
                     if (localEvents && localEvents.length > 1) {
-                        // iz lokalnih događaja uzmi uzastopne parove
-                        for (let i = 1; i < localEvents.length; i++) {
-                            const prev = localEvents[i-1];
-                            const curr = localEvents[i];
-                            const landing = normalizePageName(prev.section || prev.page || prev.label || '');
-                            const visited = normalizePageName(curr.section || curr.page || curr.label || '');
-                            
-                            // Skip if either is null or they're the same
-                            if (!landing || !visited || landing === visited) continue;
-                            
-                            const key = `${landing}->${visited}`;
-                            if (!pathMap[key]) {
-                                pathMap[key] = { landing, visited, count: 0 };
+                        hasRealData = true;
+                        const localFlow = [];
+                        
+                        localEvents.forEach(ev => {
+                            const section = normalizePageName(ev.section || ev.page || ev.label || '');
+                            if (section && !localFlow.includes(section)) {
+                                localFlow.push(section);
                             }
-                            pathMap[key].count += 1;
+                        });
+                        
+                        if (localFlow.length >= 2) {
+                            const pathKey = localFlow.slice(0, 5).join('->');
+                            if (!extendedPaths[pathKey]) {
+                                extendedPaths[pathKey] = { flow: localFlow.slice(0, 5), count: 1 };
+                            } else {
+                                extendedPaths[pathKey].count += 1;
+                            }
                         }
                     }
                 } catch (e) {
                     console.warn('Error applying local events to path analysis:', e);
                 }
 
-                // Sortiraj po broju sesija i uzmi top putanje
-                const sortedPaths = Object.values(pathMap)
+                // Sortiraj i pripremi putanje za prikaz
+                const sortedPaths = Object.values(extendedPaths)
+                    .filter(p => p.flow.length >= 2)
                     .sort((a, b) => b.count - a.count)
-                    .slice(0, 10);
+                    .slice(0, 5);
 
-                // Kreiraj putanje s flow prikazom
                 let rank = 1;
                 sortedPaths.forEach(path => {
-                    if (path.count > 0) {
-                        // Pronađi sljedeće stranice na temelju event flow podataka
-                        let flow = [path.landing];
-                        if (path.landing !== path.visited) {
-                            flow.push(path.visited);
-                        }
-
-                        // Dodaj exit ako je stranica zadnja ili dodaj još koraka ako imamo event podatke
-                        if (eventFlowData && eventFlowData.rows) {
-                            const relevantEvents = eventFlowData.rows.filter(row => {
-                                const evtRaw = (row.dimensionValues[1] && row.dimensionValues[1].value) || '';
-                                const evtPageRaw = normalizePageName(evtRaw);
-                                const evtPage = evtPageRaw ? String(evtPageRaw).toLowerCase() : '';
-                                const visitedNorm = path.visited ? String(path.visited).toLowerCase() : '';
-                                return evtPage && visitedNorm && (evtPage === visitedNorm || evtPage.includes(visitedNorm));
-                            });
-
-                            if (relevantEvents.length > 0 && flow.length < 4) {
-                                // Dodaj event kao korak u putanji
-                                const topEvent = relevantEvents[0].dimensionValues[0].value;
-                                if (topEvent !== 'page_view' && topEvent !== 'session_start') {
-                                    flow.push(formatEventName(topEvent));
-                                }
-                            }
-                        }
-
-                        // Označi neobične putanje (kratke s visokim bounce-om)
-                        const isUnusual = flow.length <= 2 && !flow.includes('Kontakt');
-
-                        paths.push({
-                            rank: rank++,
-                            flow: flow,
-                            count: path.count,
-                            unusual: isUnusual
-                        });
-                    }
+                    const isUnusual = path.flow.length <= 2 && !path.flow.includes('Kontakt');
+                    paths.push({
+                        rank: rank++,
+                        flow: path.flow,
+                        count: path.count,
+                        unusual: isUnusual
+                    });
                 });
-
-                // Ograniči na 5 putanja
-                paths = paths.slice(0, 5);
-
-            } else {
-                // Nema podataka
-                paths = [];
             }
 
             // Ako nema stvarnih podataka, prikaži poruku umjesto lažnih putanja
@@ -2576,9 +2709,15 @@
             // Generiraj interpretaciju na temelju stvarnih podataka
             const topPath = paths[0];
             const unusualPaths = paths.filter(p => p.unusual);
+            const longerPaths = paths.filter(p => p.flow.length >= 3);
             
-            const interpretation = `Najčešća putanja (${topPath.count} korisnika) vodi: ${topPath.flow.join(' → ')}. ` +
-                `${unusualPaths.length > 0 ? `Uočeno je ${unusualPaths.length} kratkih putanja koje mogu ukazivati na bounce.` : 'Većina korisnika prolazi kroz više stranica.'}`;
+            let interpretation = `Najčešća putanja (${topPath.count} korisnika) vodi: ${topPath.flow.join(' → ')}. `;
+            if (longerPaths.length > 0) {
+                interpretation += `${longerPaths.length} putanja ima 3+ koraka što pokazuje dobru angažiranost. `;
+            }
+            interpretation += unusualPaths.length > 0 
+                ? `Uočeno je ${unusualPaths.length} kratkih putanja koje mogu ukazivati na bounce.`
+                : 'Većina korisnika prolazi kroz više stranica.';
 
             let uxImplication;
             if (unusualPaths.length > 0) {
@@ -2591,6 +2730,53 @@
 
             document.getElementById('pathInterpretation').textContent = interpretation;
             document.getElementById('pathUX').textContent = uxImplication;
+        }
+
+        // Nova funkcija za dohvat navigation sequence po vremenu
+        async function fetchNavigationSequence() {
+            const propertyId = CONFIG.GA_PROPERTY_ID;
+            const url = `https://analyticsdata.googleapis.com/v1beta/properties/${propertyId}:runReport`;
+
+            const requestBody = {
+                dateRanges: [{ startDate: '30daysAgo', endDate: 'today' }],
+                dimensions: [
+                    { name: 'customEvent:section_name' },
+                    { name: 'dateHour' }  // Grupiraj po satu za približan redoslijed
+                ],
+                metrics: [
+                    { name: 'eventCount' }
+                ],
+                dimensionFilter: {
+                    filter: {
+                        fieldName: 'eventName',
+                        inListFilter: {
+                            // Traži oba event naziva
+                            values: ['navigation_click', 'section_click']
+                        }
+                    }
+                },
+                orderBys: [
+                    { dimension: { dimensionName: 'dateHour' }, desc: false }
+                ],
+                limit: 100
+            };
+
+            try {
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(requestBody)
+                });
+
+                if (!response.ok) return null;
+                return await response.json();
+            } catch (error) {
+                console.warn('Error fetching navigation sequence:', error);
+                return null;
+            }
         }
 
         // Helper funkcija za normalizaciju imena stranica

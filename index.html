@@ -1325,7 +1325,16 @@
         // Send custom event to Google Analytics
         try {
           if (typeof gtag === 'function') {
-            // Send as a custom event for anchor/section tracking
+            // Send navigation_click event (primary event for analytics dashboard)
+            gtag('event', 'navigation_click', {
+              event_category: 'Navigation',
+              event_label: sectionName,
+              section_name: sectionName,
+              page_location: window.location.href,
+              page_title: document.title + ' - ' + sectionName
+            });
+            
+            // Also send section_click for backwards compatibility
             gtag('event', 'section_click', {
               event_category: 'Navigation',
               event_label: sectionName,
