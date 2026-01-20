@@ -1043,7 +1043,7 @@
                 ]
             };
 
-            console.log('Fetching GA4 data with request:', JSON.stringify(requestBody, null, 2));
+                console.log('Fetching GA4 data with request:', JSON.stringify(requestBody, null, 2));
 
             try {
                 const response = await fetch(url, {
@@ -1211,7 +1211,7 @@
             if (data.rows) {
                 data.rows.forEach(row => {
                     const date = row.dimensionValues[0].value;
-                    const device = row.dimensionValues[1].value.toLowerCase();
+                    const device = (row.dimensionValues[1] && row.dimensionValues[1].value) ? String(row.dimensionValues[1].value).toLowerCase() : 'unknown';
                     const source = row.dimensionValues[2].value;
                     
                     const users = parseInt(row.metricValues[0].value) || 0;
@@ -1768,7 +1768,7 @@
                 let parkInteractions = {};
 
                 userInteractions.rows.forEach(row => {
-                    const pagePath = row.dimensionValues[0].value.toLowerCase();
+                    const pagePath = (row.dimensionValues[0] && row.dimensionValues[0].value) ? String(row.dimensionValues[0].value).toLowerCase() : '';
                     const views = parseInt(row.metricValues[0].value) || 0;
                     const duration = parseFloat(row.metricValues[1].value) || 0;
                     const engaged = parseInt(row.metricValues[2].value) || 0;
@@ -2186,8 +2186,8 @@
                 };
 
                 retentionDataAPI.rows.forEach(row => {
-                    const newVsReturning = row.dimensionValues[0].value.toLowerCase();
-                    const device = row.dimensionValues[1].value.toLowerCase();
+                    const newVsReturning = (row.dimensionValues[0] && row.dimensionValues[0].value) ? String(row.dimensionValues[0].value).toLowerCase() : 'unknown';
+                    const device = (row.dimensionValues[1] && row.dimensionValues[1].value) ? String(row.dimensionValues[1].value).toLowerCase() : 'unknown';
                     const users = parseInt(row.metricValues[0].value) || 0;
 
                     // Ukupno
@@ -2508,9 +2508,10 @@
                         if (eventFlowData && eventFlowData.rows) {
                             const relevantEvents = eventFlowData.rows.filter(row => {
                                 const evtRaw = (row.dimensionValues[1] && row.dimensionValues[1].value) || '';
-                                const evtPage = normalizePageName(evtRaw).toLowerCase();
-                                const visitedNorm = String(path.visited).toLowerCase();
-                                return evtPage === visitedNorm || evtPage.includes(visitedNorm);
+                                const evtPageRaw = normalizePageName(evtRaw);
+                                const evtPage = evtPageRaw ? String(evtPageRaw).toLowerCase() : '';
+                                const visitedNorm = path.visited ? String(path.visited).toLowerCase() : '';
+                                return evtPage && visitedNorm && (evtPage === visitedNorm || evtPage.includes(visitedNorm));
                             });
 
                             if (relevantEvents.length > 0 && flow.length < 4) {
