@@ -573,6 +573,17 @@
                         </div>
                     </div>
                 </div>
+                
+                <div class="col-lg-12 mb-4">
+                    <div class="chart-card">
+                        <h4 class="chart-title"><i class="bi bi-cursor-fill me-2"></i>Klikovi po sekcijama (Navigacija)</h4>
+                        <p class="text-muted mb-3">Statistika klikova na navigacijske linkove: O nama, Akvaparkovi, Cijene, Kontakt</p>
+                        <div class="chart-container">
+                            <canvas id="sectionClicksChart"></canvas>
+                        </div>
+                        <div id="sectionClicksNote" class="mt-3 text-muted small"></div>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -1296,6 +1307,7 @@
             createUsersTimeChart();
             createPagesChart();
             createTrafficChart();
+            createSectionClicksChart();
         }
 
         function createDeviceChart() {
@@ -1388,11 +1400,16 @@
                         // prefer pageLocation (index 1) if available so we can detect fragments (#about)
                         const raw = (row.dimensionValues[1] && row.dimensionValues[1].value) || row.dimensionValues[0].value || '';
                         const name = normalizePageName(raw);
+                        
+                        // Skip null (localhost/dev) pages
+                        if (!name) return;
+                        
                         const views = parseInt(row.metricValues[0].value) || 0;
                         pageMap[name] = (pageMap[name] || 0) + views;
                     });
 
                     pages = Object.keys(pageMap).map(name => ({ name, views: pageMap[name] }))
+                        .filter(p => p.views > 0) // Remove zero-view pages
                         .sort((a, b) => b.views - a.views)
                         .slice(0, 5);
                 }
@@ -1458,6 +1475,176 @@
                     plugins: {
                         legend: {
                             position: 'bottom'
+                        }
+                    }
+                }
+            });
+        }
+
+        // Fetch section/navigation click events from GA4
+        async function fetchSectionClickEvents() {
+            const propertyId = CONFIG.GA_PROPERTY_ID;
+            const url = `https://analyticsdata.googleapis.com/v1beta/properties/${propertyId}:runReport`;
+
+            const requestBody = {
+                dateRanges: [{ startDate: '30daysAgo', endDate: 'today' }],
+                dimensions: [
+                    { name: 'eventName' },
+                    { name: 'customEvent:section_name' } // Custom parameter from our tracking
+                ],
+                metrics: [
+                    { name: 'eventCount' }
+                ],
+                dimensionFilter: {
+                    orGroup: {
+                        expressions: [
+                            {
+                                filter: {
+                                    fieldName: 'eventName',
+                                    stringFilter: { matchType: 'EXACT', value: 'section_click' }
+                                }
+                            },
+                            {
+                                filter: {
+                                    fieldName: 'eventName',
+                                    stringFilter: { matchType: 'EXACT', value: 'park_detail_view' }
+                                }
+                            }
+                        ]
+                    }
+                }
+            };
+
+            try {
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(requestBody)
+                });
+
+                if (!response.ok) return null;
+                return await response.json();
+            } catch (error) {
+                console.error('Error fetching section click events:', error);
+                return null;
+            }
+        }
+
+        async function createSectionClicksChart() {
+            const ctx = document.getElementById('sectionClicksChart').getContext('2d');
+            const noteEl = document.getElementById('sectionClicksNote');
+            
+            if (charts.sectionClicks) charts.sectionClicks.destroy();
+            
+            // Try to get data from GA4 first
+            let sectionData = {};
+            let hasRealData = false;
+            
+            try {
+                const eventsData = await fetchSectionClickEvents();
+                if (eventsData && eventsData.rows && eventsData.rows.length > 0) {
+                    hasRealData = true;
+                    eventsData.rows.forEach(row => {
+                        const eventName = row.dimensionValues[0].value;
+                        const sectionName = row.dimensionValues[1]?.value || 'Nepoznato';
+                        const count = parseInt(row.metricValues[0].value) || 0;
+                        
+                        // Normalize section names
+                        let displayName = sectionName;
+                        if (sectionName === '(not set)' || !sectionName) {
+                            displayName = eventName === 'park_detail_view' ? 'Detalji parka' : 'Ostalo';
+                        }
+                        
+                        sectionData[displayName] = (sectionData[displayName] || 0) + count;
+                    });
+                }
+            } catch (error) {
+                console.error('Error fetching section clicks:', error);
+            }
+            
+            // Also check local sessionStorage events for recent activity
+            try {
+                const localEvents = JSON.parse(sessionStorage.getItem('local_section_events') || '[]');
+                if (localEvents && localEvents.length > 0) {
+                    localEvents.forEach(ev => {
+                        const section = ev.section || ev.label || 'Ostalo';
+                        if (section && section !== 'Ostalo') {
+                            sectionData[section] = (sectionData[section] || 0) + 1;
+                            hasRealData = true;
+                        }
+                    });
+                }
+            } catch (e) {
+                console.warn('Error reading local events:', e);
+            }
+            
+            // Define the expected sections in order
+            const expectedSections = ['Početna', 'O nama', 'Akvaparkovi', 'Cijene', 'Kontakt', 'Detalji parka'];
+            
+            // Create ordered data array
+            const labels = [];
+            const data = [];
+            
+            expectedSections.forEach(section => {
+                if (sectionData[section] && sectionData[section] > 0) {
+                    labels.push(section);
+                    data.push(sectionData[section]);
+                }
+            });
+            
+            // Add any other sections not in the expected list
+            Object.keys(sectionData).forEach(section => {
+                if (!expectedSections.includes(section) && sectionData[section] > 0) {
+                    labels.push(section);
+                    data.push(sectionData[section]);
+                }
+            });
+            
+            if (labels.length === 0) {
+                labels.push('Nema podataka');
+                data.push(0);
+                noteEl.innerHTML = '<i class="bi bi-info-circle me-1"></i>Još nema zabilježenih klikova na navigacijske linkove. Klikovi će se početi prikazivati kada korisnici počnu koristiti navigaciju.';
+            } else {
+                const totalClicks = data.reduce((a, b) => a + b, 0);
+                noteEl.innerHTML = `<i class="bi bi-check-circle text-success me-1"></i>Ukupno ${totalClicks} zabilježenih navigacijskih klikova u zadnjih 30 dana.`;
+            }
+            
+            charts.sectionClicks = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Broj klikova',
+                        data: data,
+                        backgroundColor: [
+                            'rgba(21, 110, 161, 0.8)',
+                            'rgba(51, 151, 208, 0.8)',
+                            'rgba(74, 163, 216, 0.8)',
+                            'rgba(102, 178, 224, 0.8)',
+                            'rgba(130, 193, 232, 0.8)',
+                            'rgba(158, 208, 240, 0.8)'
+                        ],
+                        borderColor: 'rgba(21, 110, 161, 1)',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: false
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            ticks: {
+                                stepSize: 1
+                            }
                         }
                     }
                 }
@@ -1772,6 +1959,12 @@
                         // Prefer pageLocation (contains full URL and fragment) if it exists
                         const raw = (row.dimensionValues[1] && row.dimensionValues[1].value) || row.dimensionValues[0].value || '';
                         const pagePath = String(raw).toLowerCase();
+                        
+                        // Skip localhost / development URLs
+                        if (pagePath.includes('localhost') || pagePath.includes('127.0.0.1') || pagePath.includes(':5500') || pagePath.includes(':3000')) {
+                            return;
+                        }
+                        
                         const hash = (pagePath.split('#')[1] || '').toLowerCase();
                         const users = parseInt(row.metricValues[0].value) || 0;
                         const views = parseInt(row.metricValues[2].value) || 0;
@@ -1779,7 +1972,10 @@
                         const matchesStep = step.patterns.some(pattern => {
                             const p = String(pattern).toLowerCase();
                             if (p === '' || p === '/') {
-                                return pagePath === '/' || pagePath === '' || pagePath.includes('/index');
+                                // Match homepage - check for root path or index, but not if it has a hash for another section
+                                const isRoot = pagePath === '/' || pagePath === '' || pagePath.includes('/index') || pagePath.endsWith('.html');
+                                const hasOtherHash = hash && ['about', 'parks', 'prices', 'contact', 'kontakt'].includes(hash);
+                                return isRoot && !hasOtherHash;
                             }
                             // match against full URL/path OR fragment/hash
                             return pagePath.includes(p) || hash.includes(p) || pagePath.endsWith('/' + p);
@@ -1860,45 +2056,63 @@
 
             container.innerHTML = `
                 <div class="alert alert-success mb-3"><i class="bi bi-check-circle me-2"></i>Podaci dohvaćeni iz Google Analytics API-ja</div>
-            ` + processedFunnel.map((step, index) => `
+            ` + processedFunnel.map((step, index) => {
+                // Calculate drop-off rate from previous step
+                let dropOffHtml = '';
+                if (index > 0 && processedFunnel[index-1].users > 0) {
+                    const conversionRate = Math.round((step.users / processedFunnel[index-1].users) * 100);
+                    const dropOff = 100 - conversionRate;
+                    if (step.users < processedFunnel[index-1].users) {
+                        dropOffHtml = `<span class="text-danger">-${dropOff}%</span>`;
+                    } else if (step.users > processedFunnel[index-1].users) {
+                        dropOffHtml = `<span class="text-success">+${conversionRate - 100}%</span>`;
+                    }
+                }
+                return `
                 <div class="funnel-step">
                     <div class="funnel-label">${step.step}</div>
                     <div class="funnel-bar" style="width: ${Math.max(step.percentage, 5)}%;">
                         ${step.users}
                     </div>
                     <div class="funnel-value">
-                        ${index > 0 && processedFunnel[index-1].percentage > 0 
-                            ? `<span class="text-danger">-${Math.max(0, processedFunnel[index-1].percentage - step.percentage)}%</span>` 
-                            : ''}
+                        ${dropOffHtml}
                     </div>
                 </div>
-            `).join('');
+            `}).join('');
 
             // Generiraj interpretaciju na temelju stvarnih podataka
             let interpretation = '';
             let uxImplication = '';
 
             if (hasRealData && processedFunnel[0].users > 0) {
-                // Pronađi najveći pad
-                let maxDrop = 0;
+                // Pronađi najveći pad (drop-off rate between consecutive steps)
+                let maxDropRate = 0;
                 let maxDropIndex = 0;
                 for (let i = 1; i < processedFunnel.length; i++) {
-                    const drop = processedFunnel[i-1].percentage - processedFunnel[i].percentage;
-                    if (drop > maxDrop) {
-                        maxDrop = drop;
-                        maxDropIndex = i;
+                    if (processedFunnel[i-1].users > 0) {
+                        const dropRate = Math.round((1 - (processedFunnel[i].users / processedFunnel[i-1].users)) * 100);
+                        if (dropRate > maxDropRate) {
+                            maxDropRate = dropRate;
+                            maxDropIndex = i;
+                        }
                     }
                 }
 
-                if (maxDrop > 0) {
-                    interpretation = `Najveći pad korisnika (${maxDrop}%) događa se između "${processedFunnel[maxDropIndex-1].step}" i "${processedFunnel[maxDropIndex].step}". ` +
-                        `Od ${processedFunnel[0].users} korisnika na početnoj stranici, ${processedFunnel[processedFunnel.length-1].users} (${processedFunnel[processedFunnel.length-1].percentage}%) dolazi do kontakta.`;
+                // Calculate overall conversion rate from start to end
+                const overallConversion = processedFunnel[0].users > 0 
+                    ? Math.round((processedFunnel[processedFunnel.length-1].users / processedFunnel[0].users) * 100)
+                    : 0;
+
+                if (maxDropRate > 0 && maxDropIndex > 0) {
+                    interpretation = `Najveći pad korisnika (${maxDropRate}% drop-off) događa se između "${processedFunnel[maxDropIndex-1].step}" i "${processedFunnel[maxDropIndex].step}". ` +
+                        `Od ${processedFunnel[0].users} korisnika na početnoj stranici, ${processedFunnel[processedFunnel.length-1].users} (${overallConversion}%) dolazi do kontakta.`;
                     
                     uxImplication = `Fokusirajte se na poboljšanje prijelaza između "${processedFunnel[maxDropIndex-1].step}" i "${processedFunnel[maxDropIndex].step}". ` +
                         `Razmislite o dodavanju jasnijih CTA gumba i poboljšanju navigacije.`;
                 } else {
-                    interpretation = `Funnel pokazuje ujednačen protok korisnika kroz stranicu. Ukupno ${processedFunnel[0].users} korisnika je posjetilo stranicu.`;
-                    uxImplication = `Nastavite pratiti metrike i testirajte male promjene za kontinuirano poboljšanje.`;
+                    interpretation = `Funnel pokazuje distribuciju korisnika po sekcijama. Ukupno ${processedFunnel[0].users} korisnika je posjetilo početnu stranicu. ` +
+                        `Sekcija "Akvaparkovi" ima ${processedFunnel.find(f => f.step === 'Akvaparkovi')?.users || 0} posjeta.`;
+                    uxImplication = `Nastavite pratiti metrike i testirajte male promjene za kontinuirano poboljšanje konverzije.`;
                 }
             } else {
                 interpretation = 'Nema dovoljno podataka za detaljnu analizu funnela. Potrebno je više prometa na stranici.';
@@ -2233,6 +2447,12 @@
                     landingPage = normalizePageName(landingPage);
                     visitedPage = normalizePageName(visitedPage);
 
+                    // Skip if either page is null (localhost/development) or same as each other
+                    if (!landingPage || !visitedPage) return;
+                    
+                    // Skip self-referential paths
+                    if (landingPage === visitedPage) return;
+
                     const pathKey = `${landingPage}->${visitedPage}`;
                     if (!pathMap[pathKey]) {
                         pathMap[pathKey] = {
@@ -2252,8 +2472,12 @@
                         for (let i = 1; i < localEvents.length; i++) {
                             const prev = localEvents[i-1];
                             const curr = localEvents[i];
-                            const landing = normalizePageName(prev.section || prev.page || prev.label || prev.page || '');
-                            const visited = normalizePageName(curr.section || curr.page || curr.label || curr.page || '');
+                            const landing = normalizePageName(prev.section || prev.page || prev.label || '');
+                            const visited = normalizePageName(curr.section || curr.page || curr.label || '');
+                            
+                            // Skip if either is null or they're the same
+                            if (!landing || !visited || landing === visited) continue;
+                            
                             const key = `${landing}->${visited}`;
                             if (!pathMap[key]) {
                                 pathMap[key] = { landing, visited, count: 0 };
@@ -2373,19 +2597,43 @@
             if (!pagePath || pagePath === '/' || pagePath === '/index.html' || pagePath === '(not set)') {
                 return 'Početna';
             }
-                    const lowerPath = String(pagePath).toLowerCase();
-                    // Normalize localhost / 127.0.0.1 variants
-                    if (lowerPath.includes('127.0.0.1') || lowerPath.includes('localhost')) {
-                        return 'Localhost';
-                    }
+            
+            const lowerPath = String(pagePath).toLowerCase();
+            
+            // Skip localhost / 127.0.0.1 / development URLs - return null to filter these out
+            if (lowerPath.includes('127.0.0.1') || lowerPath.includes('localhost') || lowerPath.includes(':5500') || lowerPath.includes(':3000')) {
+                return null; // Will be filtered out
+            }
+            
+            // Extract hash/fragment if present (e.g., /#about -> about)
+            const hashMatch = lowerPath.match(/#([a-z-]+)/);
+            if (hashMatch) {
+                const hash = hashMatch[1];
+                const hashMap = {
+                    'home': 'Početna',
+                    'about': 'O nama',
+                    'parks': 'Akvaparkovi',
+                    'prices': 'Cijene',
+                    'contact': 'Kontakt',
+                    'kontakt': 'Kontakt'
+                };
+                if (hashMap[hash]) {
+                    return hashMap[hash];
+                }
+            }
             
             const pageMap = {
                 'istralandia': 'Istralandia',
                 'porec': 'Aquacolors Poreč',
+                'poreč': 'Aquacolors Poreč',
                 'sibenik': 'Aquapark Dalmatia',
+                'šibenik': 'Aquapark Dalmatia',
+                'dalmatia': 'Aquapark Dalmatia',
                 'cikat': 'Aquapark Čikat',
+                'čikat': 'Aquapark Čikat',
                 'martilandia': 'Martilandia',
                 'biograd': 'Dalmaland',
+                'dalmaland': 'Dalmaland',
                 'kontakt': 'Kontakt',
                 'contact': 'Kontakt',
                 'o-nama': 'O nama',
@@ -2393,9 +2641,11 @@
                 'akvaparkovi': 'Akvaparkovi',
                 'parks': 'Akvaparkovi',
                 'prices': 'Cijene',
+                'cijene': 'Cijene',
                 'analytics': 'Analytics',
                 'galerija': 'Galerija',
-                'cijene': 'Cijene'
+                'početna': 'Početna',
+                'home': 'Početna'
             };
             
             for (const [key, value] of Object.entries(pageMap)) {
@@ -2404,8 +2654,17 @@
                 }
             }
 
-            // Vrati čitljiv naziv
-            return pagePath.replace(/[/#]/g, '').replace(/-/g, ' ').trim() || 'Stranica';
+            // If it's just a root path or index, return Početna
+            if (lowerPath === '' || lowerPath === '/' || lowerPath.endsWith('/index.html') || lowerPath.endsWith('/index')) {
+                return 'Početna';
+            }
+
+            // Return cleaned up path name or null for unknown/irrelevant pages
+            const cleaned = pagePath.replace(/[/#]/g, '').replace(/-/g, ' ').trim();
+            if (!cleaned || cleaned.length < 2) {
+                return 'Početna';
+            }
+            return cleaned;
         }
 
         // Helper funkcija za formatiranje naziva događaja
@@ -2427,6 +2686,28 @@
             document.getElementById('loadingOverlay').style.display = 'flex';
             loadAnalyticsData();
         }
+        
+        // Track navigation clicks on analytics page
+        document.addEventListener('click', function(e) {
+            const link = e.target.closest('a[href]');
+            if (!link) return;
+            
+            const href = link.getAttribute('href') || '';
+            if (href.includes('index.html') || href === '/' || href.startsWith('#')) {
+                try {
+                    if (typeof gtag === 'function') {
+                        gtag('event', 'navigation_click', {
+                            event_category: 'Navigation',
+                            event_label: href.includes('index') ? 'Početna' : 'Analytics',
+                            from_page: 'Analytics',
+                            to_page: href
+                        });
+                    }
+                } catch (e) {
+                    console.warn('gtag send failed', e);
+                }
+            }
+        }, { passive: true });
     </script>
 </body>
 </html>

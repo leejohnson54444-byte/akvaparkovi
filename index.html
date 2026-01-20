@@ -1310,23 +1310,83 @@
         '#parkModal6': 'Dalmaland'
       };
 
+      // Map section IDs to readable names
+      const sectionMap = {
+        'home': 'Početna',
+        'about': 'O nama',
+        'parks': 'Akvaparkovi',
+        'prices': 'Cijene',
+        'contact': 'Kontakt'
+      };
+
       function sendSectionEvent(section, label) {
-        // Send to Google via gtag if available
+        const sectionName = sectionMap[section] || section;
+        
+        // Send custom event to Google Analytics
         try {
           if (typeof gtag === 'function') {
-            gtag('event', 'section_view', { section: section, label: label });
+            // Send as a custom event for anchor/section tracking
+            gtag('event', 'section_click', {
+              event_category: 'Navigation',
+              event_label: sectionName,
+              section_name: sectionName,
+              page_location: window.location.href,
+              page_title: document.title + ' - ' + sectionName
+            });
+            
+            // Also send a virtual pageview for the section (helps with funnel analysis)
+            gtag('event', 'page_view', {
+              page_title: document.title + ' - ' + sectionName,
+              page_location: window.location.origin + window.location.pathname + '#' + section,
+              page_path: '/#' + section
+            });
           }
         } catch (e) {
           console.warn('gtag send failed', e);
         }
 
-        // Also store locally for quick debugging in analytics.html (sessionStorage)
+        // Also store locally for analytics dashboard
         try {
           const key = 'local_section_events';
           const raw = sessionStorage.getItem(key) || '[]';
           const arr = JSON.parse(raw);
-          arr.push({ ts: Date.now(), page: location.pathname + location.hash, section: section, label: label });
+          arr.push({ 
+            ts: Date.now(), 
+            page: location.pathname + location.hash, 
+            section: sectionName, 
+            label: label || sectionName 
+          });
           // keep only last 500 events
+          sessionStorage.setItem(key, JSON.stringify(arr.slice(-500)));
+        } catch (e) {
+          console.warn('local event store failed', e);
+        }
+      }
+
+      function sendParkDetailEvent(parkName) {
+        try {
+          if (typeof gtag === 'function') {
+            gtag('event', 'park_detail_view', {
+              event_category: 'Park Interaction',
+              event_label: parkName,
+              park_name: parkName
+            });
+          }
+        } catch (e) {
+          console.warn('gtag send failed', e);
+        }
+
+        // Store locally
+        try {
+          const key = 'local_section_events';
+          const raw = sessionStorage.getItem(key) || '[]';
+          const arr = JSON.parse(raw);
+          arr.push({ 
+            ts: Date.now(), 
+            page: location.pathname, 
+            section: 'Detalji parka', 
+            label: parkName 
+          });
           sessionStorage.setItem(key, JSON.stringify(arr.slice(-500)));
         } catch (e) {
           console.warn('local event store failed', e);
@@ -1340,20 +1400,29 @@
         if (el.matches('a[href^="#"]')) {
           const href = el.getAttribute('href') || '';
           const section = href.replace('#','') || 'home';
-          sendSectionEvent(section, section);
+          // Don't track if it's the analytics link (handled separately)
+          if (el.id !== 'analyticsLink') {
+            sendSectionEvent(section, sectionMap[section] || section);
+          }
         } else if (el.hasAttribute('data-bs-target') || el.hasAttribute('href')) {
           const target = el.getAttribute('data-bs-target') || el.getAttribute('href') || '';
-          const section = target.replace('#','') || 'modal';
-          const label = modalMap[target] ? `Detalji parka: ${modalMap[target]}` : section;
-          sendSectionEvent(section, label);
+          if (modalMap[target]) {
+            sendParkDetailEvent(modalMap[target]);
+          }
         }
       }, { passive: true });
 
       // Also capture hashchange (user navigating with back/forward or direct link)
       window.addEventListener('hashchange', function(){
         const section = location.hash.replace('#','') || 'home';
-        sendSectionEvent(section, section);
+        sendSectionEvent(section, sectionMap[section] || section);
       });
+
+      // Track initial page section if hash is present
+      if (location.hash) {
+        const section = location.hash.replace('#','');
+        sendSectionEvent(section, sectionMap[section] || section);
+      }
     })();
   </script>
 
