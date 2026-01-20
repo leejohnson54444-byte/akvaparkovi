@@ -1297,5 +1297,65 @@
   <noscript>You need to <a href="https://www.chatbot.com/help/chat-widget/enable-javascript-in-your-browser/" rel="noopener nofollow">enable JavaScript</a> in order to use the AI chatbot tool powered by <a href="https://www.chatbot.com/" rel="noopener nofollow" target="_blank">ChatBot</a></noscript>
   <!-- End of ChatBot code -->
 
+  <!-- Client-side anchor/modal click tracker: sends gtag event and stores a short local event log for debugging/analytics dashboard -->
+  <script>
+    (function(){
+      // Map modal targets to readable park names
+      const modalMap = {
+        '#parkModal1': 'Istralandia',
+        '#parkModal2': 'Aquacolors Poreč',
+        '#parkModal3': 'Aquapark Dalmatia',
+        '#parkModal4': 'Aquapark Čikat',
+        '#parkModal5': 'Martilandia',
+        '#parkModal6': 'Dalmaland'
+      };
+
+      function sendSectionEvent(section, label) {
+        // Send to Google via gtag if available
+        try {
+          if (typeof gtag === 'function') {
+            gtag('event', 'section_view', { section: section, label: label });
+          }
+        } catch (e) {
+          console.warn('gtag send failed', e);
+        }
+
+        // Also store locally for quick debugging in analytics.html (sessionStorage)
+        try {
+          const key = 'local_section_events';
+          const raw = sessionStorage.getItem(key) || '[]';
+          const arr = JSON.parse(raw);
+          arr.push({ ts: Date.now(), page: location.pathname + location.hash, section: section, label: label });
+          // keep only last 500 events
+          sessionStorage.setItem(key, JSON.stringify(arr.slice(-500)));
+        } catch (e) {
+          console.warn('local event store failed', e);
+        }
+      }
+
+      document.addEventListener('click', function(e){
+        const el = e.target.closest('a[href^="#"], button[data-bs-target], a[data-bs-target]');
+        if (!el) return;
+
+        if (el.matches('a[href^="#"]')) {
+          const href = el.getAttribute('href') || '';
+          const section = href.replace('#','') || 'home';
+          sendSectionEvent(section, section);
+        } else if (el.hasAttribute('data-bs-target') || el.hasAttribute('href')) {
+          const target = el.getAttribute('data-bs-target') || el.getAttribute('href') || '';
+          const section = target.replace('#','') || 'modal';
+          const label = modalMap[target] ? `Detalji parka: ${modalMap[target]}` : section;
+          sendSectionEvent(section, label);
+        }
+      }, { passive: true });
+
+      // Also capture hashchange (user navigating with back/forward or direct link)
+      window.addEventListener('hashchange', function(){
+        const section = location.hash.replace('#','') || 'home';
+        sendSectionEvent(section, section);
+      });
+    })();
+  </script>
+
 </body>
 </html>

@@ -1805,6 +1805,40 @@
                     percentage: Math.round((step.users / maxUsers) * 100)
                 }));
 
+                // Uključi lokalne (sessionStorage) događaje koje šalje klijent (korisno za testiranje i anchor klikove)
+                try {
+                    const localEvents = JSON.parse(sessionStorage.getItem('local_section_events') || '[]');
+                    if (localEvents && localEvents.length > 0) {
+                        hasRealData = true;
+                        localEvents.forEach(ev => {
+                            const section = String(ev.section || ev.label || ev.page || '').toLowerCase();
+                            funnelSteps.forEach(step => {
+                                const matches = step.patterns.some(p => {
+                                    const pp = String(p).toLowerCase();
+                                    return section.includes(pp) || (ev.label && ev.label.toLowerCase().includes(pp));
+                                });
+                                if (matches) {
+                                    const f = processedFunnel.find(fr => fr.step === step.step);
+                                    if (f) {
+                                        // treat each local event as one user/view for funnel counts
+                                        f.users += 1;
+                                        f.views += 1;
+                                    }
+                                }
+                            });
+                        });
+
+                        // Recompute percentages after local augmentation
+                        const newMax = processedFunnel[0].users || 1;
+                        processedFunnel = processedFunnel.map(step => ({
+                            ...step,
+                            percentage: Math.round((step.users / newMax) * 100)
+                        }));
+                    }
+                } catch (e) {
+                    console.warn('Error applying local events to funnel:', e);
+                }
+
             } else {
                 // Nema podataka - prikaži poruku
                 processedFunnel = [];
@@ -2210,6 +2244,27 @@
                     pathMap[pathKey].count += sessions;
                 });
 
+                // Uključi lokalne događaje iz sessionStorage kao tranzicije (korisno za testiranje anchor/modal klikova)
+                try {
+                    const localEvents = JSON.parse(sessionStorage.getItem('local_section_events') || '[]');
+                    if (localEvents && localEvents.length > 1) {
+                        // iz lokalnih događaja uzmi uzastopne parove
+                        for (let i = 1; i < localEvents.length; i++) {
+                            const prev = localEvents[i-1];
+                            const curr = localEvents[i];
+                            const landing = normalizePageName(prev.section || prev.page || prev.label || prev.page || '');
+                            const visited = normalizePageName(curr.section || curr.page || curr.label || curr.page || '');
+                            const key = `${landing}->${visited}`;
+                            if (!pathMap[key]) {
+                                pathMap[key] = { landing, visited, count: 0 };
+                            }
+                            pathMap[key].count += 1;
+                        }
+                    }
+                } catch (e) {
+                    console.warn('Error applying local events to path analysis:', e);
+                }
+
                 // Sortiraj po broju sesija i uzmi top putanje
                 const sortedPaths = Object.values(pathMap)
                     .sort((a, b) => b.count - a.count)
@@ -2318,6 +2373,11 @@
             if (!pagePath || pagePath === '/' || pagePath === '/index.html' || pagePath === '(not set)') {
                 return 'Početna';
             }
+                    const lowerPath = String(pagePath).toLowerCase();
+                    // Normalize localhost / 127.0.0.1 variants
+                    if (lowerPath.includes('127.0.0.1') || lowerPath.includes('localhost')) {
+                        return 'Localhost';
+                    }
             
             const pageMap = {
                 'istralandia': 'Istralandia',
@@ -2337,8 +2397,7 @@
                 'galerija': 'Galerija',
                 'cijene': 'Cijene'
             };
-
-            const lowerPath = pagePath.toLowerCase();
+            
             for (const [key, value] of Object.entries(pageMap)) {
                 if (lowerPath.includes(key)) {
                     return value;
