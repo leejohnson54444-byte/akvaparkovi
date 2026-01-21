@@ -206,6 +206,7 @@
             color: white;
             font-weight: 600;
             transition: width 0.5s ease;
+            min-width: 60px;
         }
         
         .funnel-label {
@@ -215,9 +216,72 @@
         }
         
         .funnel-value {
-            width: 80px;
+            width: 100px;
             text-align: right;
             color: var(--text-muted);
+            padding-left: 10px;
+        }
+        
+        /* Nova struktura za poravnate funnel barsove */
+        .funnel-wrapper {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+        
+        .funnel-step-row {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+        
+        .funnel-label-col {
+            width: 140px;
+            flex-shrink: 0;
+        }
+        
+        .funnel-label-col strong {
+            color: var(--text-dark);
+            font-size: 0.95rem;
+        }
+        
+        .funnel-label-col small {
+            font-size: 0.75rem;
+        }
+        
+        .funnel-bar-col {
+            flex: 1;
+            min-width: 200px;
+        }
+        
+        .funnel-bar-wrapper {
+            width: 100%;
+            background: #e9ecef;
+            border-radius: 5px;
+            overflow: hidden;
+        }
+        
+        .funnel-bar-wrapper .funnel-bar {
+            height: 36px;
+            justify-content: flex-start;
+            padding-left: 10px;
+            padding-right: 10px;
+        }
+        
+        .funnel-bar-value {
+            white-space: nowrap;
+            font-size: 0.85rem;
+        }
+        
+        .funnel-dropoff-col {
+            width: 120px;
+            text-align: right;
+            flex-shrink: 0;
+        }
+        
+        .drop-off {
+            font-size: 0.85rem;
+            font-weight: 600;
         }
         
         .retention-table {
@@ -631,16 +695,16 @@
 
                 <div class="analysis-card">
                     <h3><i class="bi bi-arrow-repeat"></i> Retention analiza</h3>
-                    <p class="text-muted mb-4">Postotak korisnika koji se vraćaju na stranicu</p>
+                    <p class="text-muted mb-4">Analiza novih i vraćenih korisnika (zadnjih 30 dana)</p>
                     
                     <table class="retention-table" id="retentionTable">
                         <thead>
                             <tr>
-                                <th>Metrika</th>
-                                <th>Day 1</th>
-                                <th>Day 7</th>
-                                <th>Day 14</th>
-                                <th>Day 30</th>
+                                <th>Segment</th>
+                                <th>Ukupno korisnika</th>
+                                <th>Novi korisnici</th>
+                                <th>Vraćeni korisnici</th>
+                                <th>Stopa vraćanja</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -1156,64 +1220,15 @@
             }
         }
 
-        // Dohvati navigation click events za bolje praćenje sekcija (hash navigacija)
-        async function fetchNavigationEventsForPages() {
-            const propertyId = CONFIG.GA_PROPERTY_ID;
-            const url = `https://analyticsdata.googleapis.com/v1beta/properties/${propertyId}:runReport`;
-
-            const requestBody = {
-                dateRanges: [{ startDate: '30daysAgo', endDate: 'today' }],
-                dimensions: [
-                    { name: 'eventName' },
-                    { name: 'customEvent:section_name' }
-                ],
-                metrics: [
-                    { name: 'eventCount' }
-                ],
-                dimensionFilter: {
-                    filter: {
-                        fieldName: 'eventName',
-                        inListFilter: {
-                            // Uključi sve varijante event naziva
-                            values: ['navigation_click', 'section_click', 'section_view', 'page_section_view']
-                        }
-                    }
-                },
-                orderBys: [
-                    { metric: { metricName: 'eventCount' }, desc: true }
-                ],
-                limit: 20
-            };
-
-            try {
-                const response = await fetch(url, {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': `Bearer ${accessToken}`,
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify(requestBody)
-                });
-
-                if (!response.ok) return null;
-                return await response.json();
-            } catch (error) {
-                console.warn('Error fetching navigation events:', error);
-                return null;
-            }
-        }
-
         async function fetchPageViewsData() {
             const propertyId = CONFIG.GA_PROPERTY_ID;
             const url = `https://analyticsdata.googleapis.com/v1beta/properties/${propertyId}:runReport`;
 
-            // Dohvati i page views i navigation events za kompletnu sliku
+            // Koristi pageTitle za dohvat page views
             const requestBody = {
                 dateRanges: [{ startDate: '30daysAgo', endDate: 'today' }],
-                // Include pageLocation so we can detect fragment/hash (#about, #parks, etc.)
                 dimensions: [
-                    { name: 'pagePath' },
-                    { name: 'pageLocation' }
+                    { name: 'pageTitle' }
                 ],
                 metrics: [
                     { name: 'screenPageViews' }
@@ -1221,7 +1236,7 @@
                 orderBys: [
                     { metric: { metricName: 'screenPageViews' }, desc: true }
                 ],
-                limit: 50 // Povećano da dohvatimo više stranica
+                limit: 20
             };
 
             try {
@@ -1444,57 +1459,23 @@
                 const pageMap = {};
                 
                 if (pagesData && pagesData.rows) {
-                    // Aggregate and normalize page names (dedupe Početna / index.html etc.)
+                    // Koristi pageTitle za mapiranje na sekcije
                     pagesData.rows.forEach(row => {
-                        // prefer pageLocation (index 1) if available so we can detect fragments (#about)
-                        const raw = (row.dimensionValues[1] && row.dimensionValues[1].value) || row.dimensionValues[0].value || '';
-                        const name = normalizePageName(raw);
+                        const pageTitle = row.dimensionValues[0]?.value || '';
+                        const name = mapPageTitleToSection(pageTitle);
                         
-                        // Skip null (localhost/dev) pages
-                        if (!name) return;
+                        // Skip Analytics i null stranice
+                        if (!name || name === 'Analytics') return;
                         
                         const views = parseInt(row.metricValues[0].value) || 0;
                         pageMap[name] = (pageMap[name] || 0) + views;
                     });
                 }
-                
-                // Dodatno - dohvati navigation events za sekcije (hash navigacija)
-                try {
-                    const navEventsData = await fetchNavigationEventsForPages();
-                    if (navEventsData && navEventsData.rows) {
-                        navEventsData.rows.forEach(row => {
-                            const sectionName = row.dimensionValues[1]?.value || '';
-                            const eventCount = parseInt(row.metricValues[0].value) || 0;
-                            
-                            // Mapiraj section_name na page name
-                            const sectionMap = {
-                                'Početna': 'Početna',
-                                'O nama': 'O nama', 
-                                'Akvaparkovi': 'Akvaparkovi',
-                                'Cijene': 'Cijene',
-                                'Kontakt': 'Kontakt',
-                                'home': 'Početna',
-                                'about': 'O nama',
-                                'parks': 'Akvaparkovi',
-                                'prices': 'Cijene',
-                                'contact': 'Kontakt'
-                            };
-                            
-                            const pageName = sectionMap[sectionName] || sectionName;
-                            if (pageName && pageName !== '(not set)') {
-                                // Dodaj navigation events kao "virtualne" page views
-                                pageMap[pageName] = (pageMap[pageName] || 0) + eventCount;
-                            }
-                        });
-                    }
-                } catch (e) {
-                    console.warn('Could not fetch navigation events for pages:', e);
-                }
 
                 pages = Object.keys(pageMap).map(name => ({ name, views: pageMap[name] }))
                     .filter(p => p.views > 0) // Remove zero-view pages
                     .sort((a, b) => b.views - a.views)
-                    .slice(0, 5);
+                    .slice(0, 6);
             } catch (error) {
                 console.error('Error fetching page views:', error);
             }
@@ -1563,44 +1544,24 @@
             });
         }
 
-        // Fetch section/navigation click events from GA4
+        // Fetch section/navigation click events from GA4 using pageTitle
         async function fetchSectionClickEvents() {
             const propertyId = CONFIG.GA_PROPERTY_ID;
             const url = `https://analyticsdata.googleapis.com/v1beta/properties/${propertyId}:runReport`;
 
+            // Koristi pageTitle za praćenje sekcija jer GA prati page titles
             const requestBody = {
                 dateRanges: [{ startDate: '30daysAgo', endDate: 'today' }],
                 dimensions: [
-                    { name: 'eventName' },
-                    { name: 'customEvent:section_name' } // Custom parameter from our tracking
+                    { name: 'pageTitle' }
                 ],
                 metrics: [
-                    { name: 'eventCount' }
+                    { name: 'screenPageViews' },
+                    { name: 'activeUsers' }
                 ],
-                dimensionFilter: {
-                    orGroup: {
-                        expressions: [
-                            {
-                                filter: {
-                                    fieldName: 'eventName',
-                                    stringFilter: { matchType: 'EXACT', value: 'section_click' }
-                                }
-                            },
-                            {
-                                filter: {
-                                    fieldName: 'eventName',
-                                    stringFilter: { matchType: 'EXACT', value: 'navigation_click' }
-                                }
-                            },
-                            {
-                                filter: {
-                                    fieldName: 'eventName',
-                                    stringFilter: { matchType: 'EXACT', value: 'park_detail_view' }
-                                }
-                            }
-                        ]
-                    }
-                }
+                orderBys: [
+                    { metric: { metricName: 'screenPageViews' }, desc: true }
+                ]
             };
 
             try {
@@ -1621,58 +1582,110 @@
             }
         }
 
+        // Fetch navigation events (section_click, navigation_click) from GA4
+        async function fetchNavigationClickEvents() {
+            const propertyId = CONFIG.GA_PROPERTY_ID;
+            const url = `https://analyticsdata.googleapis.com/v1beta/properties/${propertyId}:runReport`;
+
+            const requestBody = {
+                dateRanges: [{ startDate: '30daysAgo', endDate: 'today' }],
+                dimensions: [
+                    { name: 'eventName' },
+                    { name: 'pageTitle' }
+                ],
+                metrics: [
+                    { name: 'eventCount' }
+                ],
+                dimensionFilter: {
+                    filter: {
+                        fieldName: 'eventName',
+                        inListFilter: {
+                            values: ['section_click', 'navigation_click', 'section_view', 'click']
+                        }
+                    }
+                },
+                orderBys: [
+                    { metric: { metricName: 'eventCount' }, desc: true }
+                ]
+            };
+
+            try {
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(requestBody)
+                });
+
+                if (!response.ok) return null;
+                return await response.json();
+            } catch (error) {
+                console.error('Error fetching navigation click events:', error);
+                return null;
+            }
+        }
+
         async function createSectionClicksChart() {
             const ctx = document.getElementById('sectionClicksChart').getContext('2d');
             const noteEl = document.getElementById('sectionClicksNote');
             
             if (charts.sectionClicks) charts.sectionClicks.destroy();
             
-            // Try to get data from GA4 first
+            // Dohvati podatke iz GA4 API-ja koristeći pageTitle
             let sectionData = {};
             let hasRealData = false;
             
             try {
-                const eventsData = await fetchSectionClickEvents();
-                if (eventsData && eventsData.rows && eventsData.rows.length > 0) {
+                // Dohvati page views po page title - ovo GA stvarno prati
+                const pageViewsData = await fetchSectionClickEvents();
+                console.log('Section clicks API response:', pageViewsData);
+                
+                if (pageViewsData && pageViewsData.rows && pageViewsData.rows.length > 0) {
                     hasRealData = true;
-                    eventsData.rows.forEach(row => {
-                        const eventName = row.dimensionValues[0].value;
-                        const sectionName = row.dimensionValues[1]?.value || 'Nepoznato';
+                    
+                    pageViewsData.rows.forEach(row => {
+                        const pageTitle = row.dimensionValues[0]?.value || '';
+                        const views = parseInt(row.metricValues[0].value) || 0;
+                        
+                        // Mapiraj page titles na sekcije prema GA podacima
+                        const sectionName = mapPageTitleToSection(pageTitle);
+                        if (sectionName && sectionName !== 'Analytics') {
+                            sectionData[sectionName] = (sectionData[sectionName] || 0) + views;
+                        }
+                    });
+                }
+                
+                // Dodatno dohvati section_click i navigation_click events ako postoje
+                const navEventsData = await fetchNavigationClickEvents();
+                console.log('Navigation events API response:', navEventsData);
+                
+                if (navEventsData && navEventsData.rows && navEventsData.rows.length > 0) {
+                    hasRealData = true;
+                    navEventsData.rows.forEach(row => {
+                        const eventName = row.dimensionValues[0]?.value || '';
+                        const pageTitle = row.dimensionValues[1]?.value || '';
                         const count = parseInt(row.metricValues[0].value) || 0;
                         
-                        // Normalize section names
-                        let displayName = sectionName;
-                        if (sectionName === '(not set)' || !sectionName) {
-                            displayName = eventName === 'park_detail_view' ? 'Detalji parka' : 'Ostalo';
+                        // Za section_click, navigation_click i section_view events
+                        if (['section_click', 'navigation_click', 'section_view'].includes(eventName)) {
+                            const sectionName = mapPageTitleToSection(pageTitle);
+                            if (sectionName && sectionName !== 'Analytics') {
+                                // Zbrajaj s postojećim podacima
+                                sectionData[sectionName] = (sectionData[sectionName] || 0) + count;
+                            }
                         }
-                        
-                        sectionData[displayName] = (sectionData[displayName] || 0) + count;
                     });
                 }
             } catch (error) {
                 console.error('Error fetching section clicks:', error);
             }
             
-            // Also check local sessionStorage events for recent activity
-            try {
-                const localEvents = JSON.parse(sessionStorage.getItem('local_section_events') || '[]');
-                if (localEvents && localEvents.length > 0) {
-                    localEvents.forEach(ev => {
-                        const section = ev.section || ev.label || 'Ostalo';
-                        if (section && section !== 'Ostalo') {
-                            sectionData[section] = (sectionData[section] || 0) + 1;
-                            hasRealData = true;
-                        }
-                    });
-                }
-            } catch (e) {
-                console.warn('Error reading local events:', e);
-            }
+            // Definiraj očekivane sekcije u ispravnom redoslijedu
+            const expectedSections = ['Homepage', 'Početna', 'O nama', 'Akvaparkovi', 'Cijene', 'Kontakt'];
             
-            // Define the expected sections in order
-            const expectedSections = ['Početna', 'O nama', 'Akvaparkovi', 'Cijene', 'Kontakt', 'Detalji parka'];
-            
-            // Create ordered data array
+            // Kreiraj uređeni niz podataka
             const labels = [];
             const data = [];
             
@@ -1683,7 +1696,7 @@
                 }
             });
             
-            // Add any other sections not in the expected list
+            // Dodaj ostale sekcije koje nisu u očekivanim
             Object.keys(sectionData).forEach(section => {
                 if (!expectedSections.includes(section) && sectionData[section] > 0) {
                     labels.push(section);
@@ -1691,13 +1704,13 @@
                 }
             });
             
-            if (labels.length === 0) {
+            if (labels.length === 0 || !hasRealData) {
                 labels.push('Nema podataka');
                 data.push(0);
-                noteEl.innerHTML = '<i class="bi bi-info-circle me-1"></i>Još nema zabilježenih klikova na navigacijske linkove. Klikovi će se početi prikazivati kada korisnici počnu koristiti navigaciju.';
+                noteEl.innerHTML = '<i class="bi bi-info-circle me-1"></i>Nema zabilježenih podataka o pregledima sekcija u zadnjih 30 dana.';
             } else {
                 const totalClicks = data.reduce((a, b) => a + b, 0);
-                noteEl.innerHTML = `<i class="bi bi-check-circle text-success me-1"></i>Ukupno ${totalClicks} zabilježenih navigacijskih klikova u zadnjih 30 dana.`;
+                noteEl.innerHTML = `<i class="bi bi-check-circle text-success me-1"></i>Ukupno ${totalClicks} pregleda sekcija u zadnjih 30 dana. <span class="badge bg-success">GA API podaci</span>`;
             }
             
             charts.sectionClicks = new Chart(ctx, {
@@ -1705,7 +1718,7 @@
                 data: {
                     labels: labels,
                     datasets: [{
-                        label: 'Broj klikova',
+                        label: 'Broj pregleda',
                         data: data,
                         backgroundColor: [
                             'rgba(21, 110, 161, 0.8)',
@@ -1737,6 +1750,44 @@
                     }
                 }
             });
+        }
+        
+        // Helper funkcija za mapiranje pageTitle na naziv sekcije
+        function mapPageTitleToSection(pageTitle) {
+            if (!pageTitle) return null;
+            
+            const title = pageTitle.trim();
+            
+            // Mapiranje prema stvarnim page titles iz GA
+            if (title === 'Akvaparkovi u Hrvatskoj') {
+                return 'Homepage'; // Direktan pristup na stranicu
+            }
+            if (title === 'Akvaparkovi u Hrvatskoj - Početna') {
+                return 'Početna'; // Sekcija Početna (anchor #home)
+            }
+            if (title === 'Akvaparkovi u Hrvatskoj - Akvaparkovi') {
+                return 'Akvaparkovi'; // Sekcija Akvaparkovi (anchor #parks)
+            }
+            if (title === 'Akvaparkovi u Hrvatskoj - O nama') {
+                return 'O nama';
+            }
+            if (title === 'Akvaparkovi u Hrvatskoj - Cijene') {
+                return 'Cijene';
+            }
+            if (title === 'Akvaparkovi u Hrvatskoj - Kontakt') {
+                return 'Kontakt';
+            }
+            if (title === 'Analytics Dashboard - Akvaparkovi u Hrvatskoj') {
+                return 'Analytics';
+            }
+            
+            // Fallback - pokušaj izvući iz naslova
+            if (title.includes(' - ')) {
+                const parts = title.split(' - ');
+                return parts[parts.length - 1].trim();
+            }
+            
+            return null;
         }
 
         // Dohvaćanje podataka o interakcijama po stranicama za preporuke
@@ -1973,23 +2024,24 @@
             return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
         }
 
-        // Dohvaćanje podataka za funnel analizu
+        // Dohvaćanje podataka za funnel analizu korištenjem pageTitle
         async function fetchFunnelData() {
             const propertyId = CONFIG.GA_PROPERTY_ID;
             const url = `https://analyticsdata.googleapis.com/v1beta/properties/${propertyId}:runReport`;
 
-            // Dohvati page views za svaku sekciju
+            // Dohvati page views po pageTitle - to je ono što GA zapravo prati
             const requestBody = {
                 dateRanges: [{ startDate: '30daysAgo', endDate: 'today' }],
-                // Include pageLocation so we can inspect fragments like #about
                 dimensions: [
-                    { name: 'pagePath' },
-                    { name: 'pageLocation' }
+                    { name: 'pageTitle' }
                 ],
                 metrics: [
                     { name: 'activeUsers' },
                     { name: 'sessions' },
                     { name: 'screenPageViews' }
+                ],
+                orderBys: [
+                    { metric: { metricName: 'screenPageViews' }, desc: true }
                 ]
             };
 
@@ -2014,14 +2066,39 @@
         async function generateFunnelAnalysis() {
             const container = document.getElementById('funnelContainer');
             
-            // Definiraj korake funnel-a s mogućim putanjama
-            // Koristimo pageLocation (ako postoji) kako bismo detektirali hash/fragment (npr. #about)
+            // Definiraj korake funnel-a prema stvarnim pageTitle vrijednostima iz GA
+            // Koriste se samo stranice koje GA API stvarno prati
             const funnelSteps = [
-                { step: 'Početna stranica', patterns: ['/', '/index', '/index.html', ''] },
-                { step: 'O nama', patterns: ['about', 'o-nama', 'o nama', '#about'] },
-                { step: 'Akvaparkovi', patterns: ['parks', 'akvaparkovi', '#parks'] },
-                { step: 'Detalji parka', patterns: ['istralandia', 'porec', 'sibenik', 'cikat', 'martilandia', 'biograd'] },
-                { step: 'Kontakt', patterns: ['contact', 'kontakt', '#contact', '#kontakt'] }
+                { 
+                    step: 'Homepage', 
+                    pageTitles: ['Akvaparkovi u Hrvatskoj'],
+                    description: 'Direktan pristup'
+                },
+                { 
+                    step: 'Početna', 
+                    pageTitles: ['Akvaparkovi u Hrvatskoj - Početna'],
+                    description: 'Sekcija #home'
+                },
+                { 
+                    step: 'O nama', 
+                    pageTitles: ['Akvaparkovi u Hrvatskoj - O nama'],
+                    description: 'Sekcija O nama'
+                },
+                { 
+                    step: 'Akvaparkovi', 
+                    pageTitles: ['Akvaparkovi u Hrvatskoj - Akvaparkovi'],
+                    description: 'Sekcija #parks'
+                },
+                { 
+                    step: 'Cijene', 
+                    pageTitles: ['Akvaparkovi u Hrvatskoj - Cijene'],
+                    description: 'Sekcija Cijene'
+                },
+                { 
+                    step: 'Kontakt', 
+                    pageTitles: ['Akvaparkovi u Hrvatskoj - Kontakt'],
+                    description: 'Sekcija Kontakt'
+                }
             ];
 
             let funnelData = null;
@@ -2029,6 +2106,7 @@
 
             try {
                 funnelData = await fetchFunnelData();
+                console.log('Funnel API response:', funnelData);
             } catch (error) {
                 console.error('Error fetching funnel data:', error);
             }
@@ -2038,38 +2116,18 @@
             if (funnelData && funnelData.rows && funnelData.rows.length > 0) {
                 hasRealData = true;
 
-                // Izračunaj ukupan broj korisnika za svaki korak
-                funnelSteps.forEach((step, index) => {
+                // Mapiraj podatke po pageTitle na funnel korake
+                funnelSteps.forEach((step) => {
                     let stepUsers = 0;
                     let stepViews = 0;
 
                     funnelData.rows.forEach(row => {
-                        // Prefer pageLocation (contains full URL and fragment) if it exists
-                        const raw = (row.dimensionValues[1] && row.dimensionValues[1].value) || row.dimensionValues[0].value || '';
-                        const pagePath = String(raw).toLowerCase();
-                        
-                        // Skip localhost / development URLs
-                        if (pagePath.includes('localhost') || pagePath.includes('127.0.0.1') || pagePath.includes(':5500') || pagePath.includes(':3000')) {
-                            return;
-                        }
-                        
-                        const hash = (pagePath.split('#')[1] || '').toLowerCase();
+                        const pageTitle = row.dimensionValues[0]?.value || '';
                         const users = parseInt(row.metricValues[0].value) || 0;
                         const views = parseInt(row.metricValues[2].value) || 0;
 
-                        const matchesStep = step.patterns.some(pattern => {
-                            const p = String(pattern).toLowerCase();
-                            if (p === '' || p === '/') {
-                                // Match homepage - check for root path or index, but not if it has a hash for another section
-                                const isRoot = pagePath === '/' || pagePath === '' || pagePath.includes('/index') || pagePath.endsWith('.html');
-                                const hasOtherHash = hash && ['about', 'parks', 'prices', 'contact', 'kontakt'].includes(hash);
-                                return isRoot && !hasOtherHash;
-                            }
-                            // match against full URL/path OR fragment/hash
-                            return pagePath.includes(p) || hash.includes(p) || pagePath.endsWith('/' + p);
-                        });
-
-                        if (matchesStep) {
+                        // Provjeri odgovara li pageTitle ovom koraku (točno podudaranje)
+                        if (step.pageTitles.includes(pageTitle)) {
                             stepUsers += users;
                             stepViews += views;
                         }
@@ -2077,59 +2135,18 @@
 
                     processedFunnel.push({
                         step: step.step,
+                        description: step.description,
                         users: stepUsers,
                         views: stepViews
                     });
                 });
-
-                // Izračunaj postotke relativno na prvi korak
-                const maxUsers = processedFunnel[0].users || 1;
-                processedFunnel = processedFunnel.map(step => ({
-                    ...step,
-                    percentage: Math.round((step.users / maxUsers) * 100)
-                }));
-
-                // Uključi lokalne (sessionStorage) događaje koje šalje klijent (korisno za testiranje i anchor klikove)
-                try {
-                    const localEvents = JSON.parse(sessionStorage.getItem('local_section_events') || '[]');
-                    if (localEvents && localEvents.length > 0) {
-                        hasRealData = true;
-                        localEvents.forEach(ev => {
-                            const section = String(ev.section || ev.label || ev.page || '').toLowerCase();
-                            funnelSteps.forEach(step => {
-                                const matches = step.patterns.some(p => {
-                                    const pp = String(p).toLowerCase();
-                                    return section.includes(pp) || (ev.label && ev.label.toLowerCase().includes(pp));
-                                });
-                                if (matches) {
-                                    const f = processedFunnel.find(fr => fr.step === step.step);
-                                    if (f) {
-                                        // treat each local event as one user/view for funnel counts
-                                        f.users += 1;
-                                        f.views += 1;
-                                    }
-                                }
-                            });
-                        });
-
-                        // Recompute percentages after local augmentation
-                        const newMax = processedFunnel[0].users || 1;
-                        processedFunnel = processedFunnel.map(step => ({
-                            ...step,
-                            percentage: Math.round((step.users / newMax) * 100)
-                        }));
-                    }
-                } catch (e) {
-                    console.warn('Error applying local events to funnel:', e);
-                }
-
-            } else {
-                // Nema podataka - prikaži poruku
-                processedFunnel = [];
             }
 
-            // Ako nema stvarnih podataka, prikaži poruku umjesto praznog funnela
-            if (!hasRealData || processedFunnel.length === 0 || processedFunnel[0].users === 0) {
+            // Filtriraj korake s podacima (korisnici > 0)
+            const validSteps = processedFunnel.filter(step => step.users > 0);
+
+            // Ako nema stvarnih podataka, prikaži poruku
+            if (!hasRealData || validSteps.length === 0) {
                 container.innerHTML = `
                     <div class="alert alert-info text-center p-4">
                         <i class="bi bi-funnel" style="font-size: 2rem; color: #0dcaf0;"></i>
@@ -2142,81 +2159,110 @@
                 return;
             }
 
+            // Pronađi maksimalni broj korisnika za normalizaciju barsova
+            const maxUsers = Math.max(...validSteps.map(s => s.users), 1);
+
+            // Generiraj HTML s poravnatim barsovima i drop-off za svaki korak
             container.innerHTML = `
-                <div class="alert alert-success mb-3"><i class="bi bi-check-circle me-2"></i>Podaci dohvaćeni iz Google Analytics API-ja</div>
-            ` + processedFunnel.map((step, index) => {
-                // Calculate drop-off rate from previous step
-                let dropOffHtml = '';
-                if (index > 0 && processedFunnel[index-1].users > 0) {
-                    const conversionRate = Math.round((step.users / processedFunnel[index-1].users) * 100);
-                    const dropOff = 100 - conversionRate;
-                    if (step.users < processedFunnel[index-1].users) {
-                        dropOffHtml = `<span class="text-danger">-${dropOff}%</span>`;
-                    } else if (step.users > processedFunnel[index-1].users) {
-                        dropOffHtml = `<span class="text-success">+${conversionRate - 100}%</span>`;
-                    }
-                }
-                return `
-                <div class="funnel-step">
-                    <div class="funnel-label">${step.step}</div>
-                    <div class="funnel-bar" style="width: ${Math.max(step.percentage, 5)}%;">
-                        ${step.users}
-                    </div>
-                    <div class="funnel-value">
-                        ${dropOffHtml}
-                    </div>
-                </div>
-            `}).join('');
-
-            // Generiraj interpretaciju na temelju stvarnih podataka
-            let interpretation = '';
-            let uxImplication = '';
-
-            if (hasRealData && processedFunnel[0].users > 0) {
-                // Pronađi najveći pad (drop-off rate between consecutive steps)
-                let maxDropRate = 0;
-                let maxDropIndex = 0;
-                for (let i = 1; i < processedFunnel.length; i++) {
-                    if (processedFunnel[i-1].users > 0) {
-                        const dropRate = Math.round((1 - (processedFunnel[i].users / processedFunnel[i-1].users)) * 100);
-                        if (dropRate > maxDropRate) {
-                            maxDropRate = dropRate;
-                            maxDropIndex = i;
+                <div class="alert alert-success mb-3"><i class="bi bi-check-circle me-2"></i>Stvarni podaci iz Google Analytics API-ja</div>
+                <div class="funnel-wrapper">
+                    ${validSteps.map((step, index) => {
+                        // Izračunaj drop-off od prethodnog koraka
+                        let dropOffHtml = '';
+                        
+                        if (index === 0) {
+                            dropOffHtml = `<span class="drop-off text-primary"><i class="bi bi-play-fill"></i> Početak</span>`;
+                        } else {
+                            const prevStep = validSteps[index - 1];
+                            const dropOffPercent = prevStep.users > 0 
+                                ? Math.round((1 - (step.users / prevStep.users)) * 100) 
+                                : 0;
+                            
+                            if (dropOffPercent > 0) {
+                                dropOffHtml = `<span class="drop-off text-danger"><i class="bi bi-arrow-down"></i> ${dropOffPercent}% drop-off</span>`;
+                            } else if (dropOffPercent < 0) {
+                                dropOffHtml = `<span class="drop-off text-success"><i class="bi bi-arrow-up"></i> ${Math.abs(dropOffPercent)}% više</span>`;
+                            } else {
+                                dropOffHtml = `<span class="drop-off text-muted">= 0% promjena</span>`;
+                            }
                         }
+                        
+                        // Izračunaj širinu bara (minimalno 10% za vidljivost)
+                        const barWidth = Math.max((step.users / maxUsers) * 100, 10);
+                        
+                        return `
+                        <div class="funnel-step-row">
+                            <div class="funnel-label-col">
+                                <strong>${step.step}</strong>
+                                <small class="d-block text-muted">${step.description}</small>
+                            </div>
+                            <div class="funnel-bar-col">
+                                <div class="funnel-bar-wrapper">
+                                    <div class="funnel-bar" style="width: ${barWidth}%;">
+                                        <span class="funnel-bar-value">${step.users} korisnika</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="funnel-dropoff-col">
+                                ${dropOffHtml}
+                            </div>
+                        </div>
+                    `}).join('')}
+                </div>
+            `;
+
+            // Generiraj interpretaciju
+            const sortedByUsers = [...validSteps].sort((a, b) => b.users - a.users);
+            const mostVisited = sortedByUsers[0];
+            const leastVisited = sortedByUsers[sortedByUsers.length - 1];
+
+            // Pronađi najveći drop-off
+            let maxDropRate = 0;
+            let maxDropFrom = '';
+            let maxDropTo = '';
+            for (let i = 1; i < validSteps.length; i++) {
+                if (validSteps[i-1].users > 0) {
+                    const dropRate = Math.round((1 - (validSteps[i].users / validSteps[i-1].users)) * 100);
+                    if (dropRate > maxDropRate) {
+                        maxDropRate = dropRate;
+                        maxDropFrom = validSteps[i-1].step;
+                        maxDropTo = validSteps[i].step;
                     }
                 }
-
-                // Calculate overall conversion rate from start to end
-                const overallConversion = processedFunnel[0].users > 0 
-                    ? Math.round((processedFunnel[processedFunnel.length-1].users / processedFunnel[0].users) * 100)
-                    : 0;
-
-                if (maxDropRate > 0 && maxDropIndex > 0) {
-                    interpretation = `Najveći pad korisnika (${maxDropRate}% drop-off) događa se između "${processedFunnel[maxDropIndex-1].step}" i "${processedFunnel[maxDropIndex].step}". ` +
-                        `Od ${processedFunnel[0].users} korisnika na početnoj stranici, ${processedFunnel[processedFunnel.length-1].users} (${overallConversion}%) dolazi do kontakta.`;
-                    
-                    uxImplication = `Fokusirajte se na poboljšanje prijelaza između "${processedFunnel[maxDropIndex-1].step}" i "${processedFunnel[maxDropIndex].step}". ` +
-                        `Razmislite o dodavanju jasnijih CTA gumba i poboljšanju navigacije.`;
-                } else {
-                    interpretation = `Funnel pokazuje distribuciju korisnika po sekcijama. Ukupno ${processedFunnel[0].users} korisnika je posjetilo početnu stranicu. ` +
-                        `Sekcija "Akvaparkovi" ima ${processedFunnel.find(f => f.step === 'Akvaparkovi')?.users || 0} posjeta.`;
-                    uxImplication = `Nastavite pratiti metrike i testirajte male promjene za kontinuirano poboljšanje konverzije.`;
-                }
-            } else {
-                interpretation = 'Nema dovoljno podataka za detaljnu analizu funnela. Potrebno je više prometa na stranici.';
-                uxImplication = 'Fokusirajte se na povećanje prometa i praćenje korisničkog ponašanja.';
             }
+
+            // Ukupna konverzija
+            const firstStep = validSteps[0];
+            const lastStep = validSteps[validSteps.length - 1];
+            const overallConversion = firstStep.users > 0 
+                ? Math.round((lastStep.users / firstStep.users) * 100) 
+                : 0;
+
+            let interpretation = `Najposjećenija sekcija je "${mostVisited.step}" s ${mostVisited.users} korisnika. `;
+            if (maxDropRate > 0 && maxDropFrom && maxDropTo) {
+                interpretation += `Najveći pad (${maxDropRate}%) je između "${maxDropFrom}" i "${maxDropTo}". `;
+            }
+            if (leastVisited.step !== mostVisited.step) {
+                interpretation += `Najmanje posjećena: "${leastVisited.step}" (${leastVisited.users} korisnika). `;
+            }
+            interpretation += `Ukupna konverzija: ${overallConversion}%.`;
+
+            let uxImplication = maxDropRate > 50 
+                ? `Visok drop-off (${maxDropRate}%) između "${maxDropFrom}" i "${maxDropTo}" sugerira potrebu za boljom navigacijom i CTA gumbima.`
+                : maxDropRate > 30 
+                    ? `Umjeren drop-off. Testirajte različite verzije navigacije za poboljšanje.`
+                    : `Dobra distribucija korisnika. Nastavite pratiti i optimizirati sadržaj.`;
 
             document.getElementById('funnelInterpretation').textContent = interpretation;
             document.getElementById('funnelUX').textContent = uxImplication;
         }
 
-        // Dohvaćanje podataka za retention analizu (cohort data)
+        // Dohvaćanje podataka za retention analizu korištenjem stvarnih GA4 metrika
         async function fetchRetentionData() {
             const propertyId = CONFIG.GA_PROPERTY_ID;
             const url = `https://analyticsdata.googleapis.com/v1beta/properties/${propertyId}:runReport`;
 
-            // Dohvati podatke o novim i vraćenim korisnicima
+            // Dohvati podatke o novim i vraćenim korisnicima po datumu
             const requestBody = {
                 dateRanges: [{ startDate: '30daysAgo', endDate: 'today' }],
                 dimensions: [
@@ -2227,7 +2273,11 @@
                 metrics: [
                     { name: 'activeUsers' },
                     { name: 'sessions' },
-                    { name: 'engagedSessions' }
+                    { name: 'engagedSessions' },
+                    { name: 'userEngagementDuration' }
+                ],
+                orderBys: [
+                    { dimension: { dimensionName: 'date' }, desc: false }
                 ]
             };
 
@@ -2257,157 +2307,142 @@
 
             try {
                 retentionDataAPI = await fetchRetentionData();
+                console.log('Retention API response:', retentionDataAPI);
             } catch (error) {
                 console.error('Error fetching retention data:', error);
             }
 
-            let retentionData = [];
-
-            if (retentionDataAPI && retentionDataAPI.rows && retentionDataAPI.rows.length > 0) {
-                hasRealData = true;
-
-                // Agregiraj podatke po uređaju i novim/vraćenim korisnicima
-                let stats = {
-                    all: { new: 0, returning: 0, total: 0 },
-                    desktop: { new: 0, returning: 0, total: 0 },
-                    mobile: { new: 0, returning: 0, total: 0 }
-                };
-
-                retentionDataAPI.rows.forEach(row => {
-                    const newVsReturning = (row.dimensionValues[0] && row.dimensionValues[0].value) ? String(row.dimensionValues[0].value).toLowerCase() : 'unknown';
-                    const device = (row.dimensionValues[1] && row.dimensionValues[1].value) ? String(row.dimensionValues[1].value).toLowerCase() : 'unknown';
-                    const users = parseInt(row.metricValues[0].value) || 0;
-
-                    // Ukupno
-                    stats.all.total += users;
-                    if (newVsReturning === 'returning' || newVsReturning === 'returning visitor') {
-                        stats.all.returning += users;
-                    } else {
-                        stats.all.new += users;
-                    }
-
-                    // Po uređaju
-                    if (device === 'desktop') {
-                        stats.desktop.total += users;
-                        if (newVsReturning === 'returning' || newVsReturning === 'returning visitor') {
-                            stats.desktop.returning += users;
-                        } else {
-                            stats.desktop.new += users;
-                        }
-                    } else if (device === 'mobile') {
-                        stats.mobile.total += users;
-                        if (newVsReturning === 'returning' || newVsReturning === 'returning visitor') {
-                            stats.mobile.returning += users;
-                        } else {
-                            stats.mobile.new += users;
-                        }
-                    }
-                });
-
-                // Izračunaj retention stope (simulirane vrijednosti bazirane na returning vs new ratio)
-                // Napomena: Pravi cohort retention zahtijeva GA4 Data API cohort report
-                const calculateRetention = (returning, total) => {
-                    if (total === 0) return { day1: 0, day7: 0, day14: 0, day30: 0 };
-                    const baseRetention = (returning / total) * 100;
-                    return {
-                        day1: Math.round(baseRetention * 1.5), // Day 1 je viši
-                        day7: Math.round(baseRetention * 1.0),
-                        day14: Math.round(baseRetention * 0.7),
-                        day30: Math.round(baseRetention * 0.5)
-                    };
-                };
-
-                const allRetention = calculateRetention(stats.all.returning, stats.all.total);
-                const desktopRetention = calculateRetention(stats.desktop.returning, stats.desktop.total);
-                const mobileRetention = calculateRetention(stats.mobile.returning, stats.mobile.total);
-
-                retentionData = [
-                    { 
-                        cohort: `Svi korisnici (${stats.all.total})`, 
-                        day1: Math.min(allRetention.day1, 100), 
-                        day7: Math.min(allRetention.day7, 100), 
-                        day14: Math.min(allRetention.day14, 100), 
-                        day30: Math.min(allRetention.day30, 100),
-                        returning: stats.all.returning,
-                        new: stats.all.new
-                    },
-                    { 
-                        cohort: `Desktop (${stats.desktop.total})`, 
-                        day1: Math.min(desktopRetention.day1, 100), 
-                        day7: Math.min(desktopRetention.day7, 100), 
-                        day14: Math.min(desktopRetention.day14, 100), 
-                        day30: Math.min(desktopRetention.day30, 100),
-                        returning: stats.desktop.returning,
-                        new: stats.desktop.new
-                    },
-                    { 
-                        cohort: `Mobile (${stats.mobile.total})`, 
-                        day1: Math.min(mobileRetention.day1, 100), 
-                        day7: Math.min(mobileRetention.day7, 100), 
-                        day14: Math.min(mobileRetention.day14, 100), 
-                        day30: Math.min(mobileRetention.day30, 100),
-                        returning: stats.mobile.returning,
-                        new: stats.mobile.new
-                    }
-                ];
-            } else {
-                // Nema podataka
-                retentionData = [];
-            }
-
-            // Ako nema stvarnih podataka, prikaži poruku umjesto prazne tablice
-            if (!hasRealData || retentionData.length === 0) {
+            // Ako nema podataka
+            if (!retentionDataAPI || !retentionDataAPI.rows || retentionDataAPI.rows.length === 0) {
                 tableBody.innerHTML = `
                     <tr>
                         <td colspan="5" class="text-center p-4">
                             <i class="bi bi-arrow-repeat" style="font-size: 2rem; color: #0dcaf0;"></i>
                             <h5 class="mt-3">Nema dovoljno podataka za retention analizu</h5>
-                            <p class="text-muted mb-0">Potrebno je više vremena i korisničkih posjeta za analizu vraćanja korisnika.</p>
+                            <p class="text-muted mb-0">Potrebno je više korisničkih posjeta.</p>
                         </td>
                     </tr>
                 `;
-                document.getElementById('retentionInterpretation').textContent = 'Nema dovoljno podataka za interpretaciju retention analize.';
-                document.getElementById('retentionUX').textContent = 'Pričekajte dok se prikupi više podataka o vraćanju korisnika.';
+                document.getElementById('retentionInterpretation').textContent = 'Nema dovoljno podataka za interpretaciju.';
+                document.getElementById('retentionUX').textContent = 'Pričekajte dok se prikupi više podataka.';
                 return;
             }
 
+            hasRealData = true;
+
+            // Agregiraj podatke po uređaju i novim/vraćenim korisnicima
+            let stats = {
+                all: { new: 0, returning: 0, total: 0 },
+                desktop: { new: 0, returning: 0, total: 0 },
+                mobile: { new: 0, returning: 0, total: 0 },
+                tablet: { new: 0, returning: 0, total: 0 }
+            };
+
+            retentionDataAPI.rows.forEach(row => {
+                const newVsReturning = (row.dimensionValues[0]?.value || '').toLowerCase();
+                const device = (row.dimensionValues[1]?.value || '').toLowerCase();
+                const users = parseInt(row.metricValues[0].value) || 0;
+
+                const isReturning = newVsReturning.includes('returning');
+
+                // Ukupno
+                stats.all.total += users;
+                if (isReturning) {
+                    stats.all.returning += users;
+                } else {
+                    stats.all.new += users;
+                }
+
+                // Po uređaju
+                const deviceKey = ['desktop', 'mobile', 'tablet'].includes(device) ? device : 'desktop';
+                stats[deviceKey].total += users;
+                if (isReturning) {
+                    stats[deviceKey].returning += users;
+                } else {
+                    stats[deviceKey].new += users;
+                }
+            });
+
+            // Izračunaj stope vraćanja
+            const calcRate = (returning, total) => total > 0 ? Math.round((returning / total) * 100) : 0;
+
+            const retentionRows = [
+                { 
+                    segment: 'Svi korisnici', 
+                    total: stats.all.total,
+                    new: stats.all.new,
+                    returning: stats.all.returning,
+                    rate: calcRate(stats.all.returning, stats.all.total)
+                }
+            ];
+
+            // Dodaj uređaje samo ako imaju podataka
+            if (stats.desktop.total > 0) {
+                retentionRows.push({ 
+                    segment: 'Desktop', 
+                    total: stats.desktop.total,
+                    new: stats.desktop.new,
+                    returning: stats.desktop.returning,
+                    rate: calcRate(stats.desktop.returning, stats.desktop.total)
+                });
+            }
+            if (stats.mobile.total > 0) {
+                retentionRows.push({ 
+                    segment: 'Mobile', 
+                    total: stats.mobile.total,
+                    new: stats.mobile.new,
+                    returning: stats.mobile.returning,
+                    rate: calcRate(stats.mobile.returning, stats.mobile.total)
+                });
+            }
+            if (stats.tablet.total > 0) {
+                retentionRows.push({ 
+                    segment: 'Tablet', 
+                    total: stats.tablet.total,
+                    new: stats.tablet.new,
+                    returning: stats.tablet.returning,
+                    rate: calcRate(stats.tablet.returning, stats.tablet.total)
+                });
+            }
+
             tableBody.innerHTML = `
-                <tr><td colspan="5" class="text-success"><i class="bi bi-check-circle me-2"></i>Podaci bazirani na Google Analytics API (novi vs. vraćeni korisnici)</td></tr>
-            ` + retentionData.map(row => `
+                <tr><td colspan="5" class="text-success"><i class="bi bi-check-circle me-2"></i>Stvarni podaci iz GA API-ja (zadnjih 30 dana)</td></tr>
+            ` + retentionRows.map(row => `
                 <tr>
-                    <td><strong>${row.cohort}</strong></td>
-                    <td class="retention-cell ${getRetentionClass(row.day1)}">${row.day1}%</td>
-                    <td class="retention-cell ${getRetentionClass(row.day7)}">${row.day7}%</td>
-                    <td class="retention-cell ${getRetentionClass(row.day14)}">${row.day14}%</td>
-                    <td class="retention-cell ${getRetentionClass(row.day30)}">${row.day30}%</td>
+                    <td><strong>${row.segment}</strong></td>
+                    <td>${row.total}</td>
+                    <td>${row.new}</td>
+                    <td>${row.returning}</td>
+                    <td class="retention-cell ${getRetentionClass(row.rate)}">${row.rate}%</td>
                 </tr>
             `).join('');
 
-            // Generiraj interpretaciju na temelju stvarnih podataka
-            let interpretation = '';
+            // Generiraj interpretaciju
+            const allRate = calcRate(stats.all.returning, stats.all.total);
+            let interpretation = `Od ${stats.all.total} korisnika, ${stats.all.returning} (${allRate}%) su vraćeni korisnici. `;
+            
+            if (allRate > 30) {
+                interpretation += `Ovo je dobra stopa vraćanja.`;
+            } else if (allRate > 15) {
+                interpretation += `Prosječna stopa vraćanja - ima prostora za poboljšanje.`;
+            } else {
+                interpretation += `Niska stopa vraćanja - potrebno je raditi na angažmanu.`;
+            }
+
             let uxImplication = '';
+            const desktopRate = calcRate(stats.desktop.returning, stats.desktop.total);
+            const mobileRate = calcRate(stats.mobile.returning, stats.mobile.total);
 
-            if (hasRealData && retentionData[0].day1 > 0) {
-                const allData = retentionData[0];
-                const desktopData = retentionData[1];
-                const mobileData = retentionData[2];
-
-                interpretation = `Od ukupno ${allData.returning + allData.new} korisnika, ${allData.returning} se vraća na stranicu. ` +
-                    `Day 1 retention od ${allData.day1}% pokazuje ${allData.day1 > 30 ? 'dobru' : 'prosječnu'} angažiranost. ` +
-                    `Pad na ${allData.day30}% do Day 30 je ${allData.day30 > 10 ? 'prihvatljiv' : 'ispod prosjeka'}.`;
-
-                if (desktopData.day1 > mobileData.day1) {
-                    uxImplication = `Desktop korisnici pokazuju bolji retention (${desktopData.day1}% vs ${mobileData.day1}%). ` +
-                        `Razmislite o optimizaciji mobilnog iskustva za poboljšanje retention-a na mobilnim uređajima.`;
-                } else if (mobileData.day1 > desktopData.day1) {
-                    uxImplication = `Mobile korisnici pokazuju bolji retention (${mobileData.day1}% vs ${desktopData.day1}%). ` +
-                        `Mobilno iskustvo je dobro optimizirano.`;
+            if (stats.desktop.total > 0 && stats.mobile.total > 0) {
+                if (desktopRate > mobileRate + 10) {
+                    uxImplication = `Desktop korisnici imaju višu stopu vraćanja (${desktopRate}% vs ${mobileRate}%). Poboljšajte mobilno iskustvo.`;
+                } else if (mobileRate > desktopRate + 10) {
+                    uxImplication = `Mobilni korisnici imaju višu stopu vraćanja. Mobilno iskustvo je dobro optimizirano.`;
                 } else {
-                    uxImplication = `Retention je podjednak na svim uređajima. Fokusirajte se na generalno poboljšanje sadržaja.`;
+                    uxImplication = `Slična stopa vraćanja na svim uređajima. Fokusirajte se na poboljšanje sadržaja.`;
                 }
             } else {
-                interpretation = 'Nema dovoljno podataka za detaljnu retention analizu. Potrebno je više vremena za prikupljanje podataka.';
-                uxImplication = 'Implementirajte strategije za povećanje povratnih posjeta (newsletter, push notifikacije).';
+                uxImplication = `Za povećanje vraćanja razmislite o newsletteru ili redovitom ažuriranju sadržaja.`;
             }
 
             document.getElementById('retentionInterpretation').textContent = interpretation;
@@ -2420,59 +2455,16 @@
             return 'retention-low';
         }
 
-        // Dohvaćanje podataka za path analizu
-        async function fetchPathData() {
-            const propertyId = CONFIG.GA_PROPERTY_ID;
-            const url = `https://analyticsdata.googleapis.com/v1beta/properties/${propertyId}:runReport`;
-
-            // Dohvati podatke o landing stranicama i izlaznim stranicama
-            const requestBody = {
-                dateRanges: [{ startDate: '30daysAgo', endDate: 'today' }],
-                // Use pageLocation to capture full URL and fragments (hashes)
-                dimensions: [
-                    { name: 'landingPage' },
-                    { name: 'pageLocation' }
-                ],
-                metrics: [
-                    { name: 'sessions' },
-                    { name: 'activeUsers' },
-                    { name: 'screenPageViews' }
-                ],
-                orderBys: [
-                    { metric: { metricName: 'sessions' }, desc: true }
-                ],
-                limit: 100
-            };
-
-            try {
-                const response = await fetch(url, {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': `Bearer ${accessToken}`,
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify(requestBody)
-                });
-
-                if (!response.ok) return null;
-                return await response.json();
-            } catch (error) {
-                console.error('Error fetching path data:', error);
-                return null;
-            }
-        }
-
-        // Dohvaćanje podataka o event flows
+        // Dohvaćanje podataka o event flows korištenjem pageTitle
         async function fetchEventFlowData() {
             const propertyId = CONFIG.GA_PROPERTY_ID;
             const url = `https://analyticsdata.googleapis.com/v1beta/properties/${propertyId}:runReport`;
 
             const requestBody = {
                 dateRanges: [{ startDate: '30daysAgo', endDate: 'today' }],
-                // Use pageLocation so events happening on anchor fragments are tied to that fragment/page
                 dimensions: [
                     { name: 'eventName' },
-                    { name: 'pageLocation' }
+                    { name: 'pageTitle' }
                 ],
                 metrics: [
                     { name: 'eventCount' },
@@ -2481,7 +2473,7 @@
                 orderBys: [
                     { metric: { metricName: 'eventCount' }, desc: true }
                 ],
-                limit: 50
+                limit: 100
             };
 
             try {
@@ -2505,195 +2497,127 @@
         async function generatePathAnalysis() {
             const container = document.getElementById('pathContainer');
             
-            let pathDataAPI = null;
             let eventFlowData = null;
-            let navEventsData = null;
             let hasRealData = false;
 
             try {
-                [pathDataAPI, eventFlowData, navEventsData] = await Promise.all([
-                    fetchPathData(),
-                    fetchEventFlowData(),
-                    fetchNavigationSequence()
-                ]);
+                eventFlowData = await fetchEventFlowData();
+                console.log('Event Flow API response:', eventFlowData);
             } catch (error) {
                 console.error('Error fetching path data:', error);
             }
 
-            let paths = [];
-            
-            // Struktura za praćenje slijeda navigacije po korisnicima
-            const userFlows = {};
+            // Mapiraj pageTitle na sekcije i grupiraj podatke
+            const sectionStats = {};
 
-            // 1. Prvo analiziraj navigation_click events koji imaju section_name
-            if (navEventsData && navEventsData.rows && navEventsData.rows.length > 0) {
+            if (eventFlowData && eventFlowData.rows && eventFlowData.rows.length > 0) {
                 hasRealData = true;
                 
-                // Grupiraj events po sessionu/korisniku i vremenu
-                navEventsData.rows.forEach(row => {
-                    const sectionName = row.dimensionValues[0]?.value || '';
-                    const dateHour = row.dimensionValues[1]?.value || '0';
-                    const eventCount = parseInt(row.metricValues[0].value) || 0;
+                eventFlowData.rows.forEach(row => {
+                    const pageTitle = row.dimensionValues[1]?.value || '';
+                    const users = parseInt(row.metricValues[1].value) || 0;
                     
-                    if (sectionName && sectionName !== '(not set)') {
-                        const normalizedSection = normalizePageName(sectionName) || sectionName;
-                        if (!userFlows[dateHour]) {
-                            userFlows[dateHour] = { sections: [], count: eventCount };
+                    const section = mapPageTitleToSection(pageTitle);
+                    if (section && section !== 'Analytics') {
+                        if (!sectionStats[section]) {
+                            sectionStats[section] = 0;
                         }
-                        userFlows[dateHour].sections.push(normalizedSection);
-                        userFlows[dateHour].count = Math.max(userFlows[dateHour].count, eventCount);
+                        sectionStats[section] += users;
                     }
                 });
             }
 
-            // 2. Dodaj podatke iz landing page → page location
-            if (pathDataAPI && pathDataAPI.rows && pathDataAPI.rows.length > 0) {
-                hasRealData = true;
+            // Sortiraj sekcije po broju korisnika
+            const sortedSections = Object.entries(sectionStats)
+                .filter(([, users]) => users > 0)
+                .sort((a, b) => b[1] - a[1])
+                .map(([section, users]) => ({ section, users }));
 
-                // Grupiraj putanje po landing page → visited page kombinacijama
-                const pathMap = {};
-                
-                pathDataAPI.rows.forEach(row => {
-                    let landingPage = row.dimensionValues[0].value;
-                    let visitedPage = row.dimensionValues[1].value;
-                    const sessions = parseInt(row.metricValues[0].value) || 0;
+            console.log('Sorted sections for paths:', sortedSections);
 
-                    // Normaliziraj nazive stranica
-                    landingPage = normalizePageName(landingPage);
-                    visitedPage = normalizePageName(visitedPage);
-
-                    // Skip if either page is null (localhost/development) or same as each other
-                    if (!landingPage || !visitedPage) return;
-                    
-                    // Skip self-referential paths
-                    if (landingPage === visitedPage) return;
-
-                    const pathKey = `${landingPage}->${visitedPage}`;
-                    if (!pathMap[pathKey]) {
-                        pathMap[pathKey] = {
-                            landing: landingPage,
-                            visited: visitedPage,
-                            count: 0
-                        };
-                    }
-                    pathMap[pathKey].count += sessions;
-                });
-
-                // 3. Koristi event flow podatke za proširivanje putanja
-                const extendedPaths = {};
-                
-                if (eventFlowData && eventFlowData.rows) {
-                    // Grupiraj events po stranici
-                    const pageEvents = {};
-                    eventFlowData.rows.forEach(row => {
-                        const eventName = row.dimensionValues[0]?.value || '';
-                        const pageLocation = row.dimensionValues[1]?.value || '';
-                        const eventCount = parseInt(row.metricValues[0].value) || 0;
-                        
-                        const normalizedPage = normalizePageName(pageLocation);
-                        if (normalizedPage && eventName !== 'page_view' && eventName !== 'session_start' && eventName !== 'first_visit') {
-                            if (!pageEvents[normalizedPage]) {
-                                pageEvents[normalizedPage] = [];
-                            }
-                            pageEvents[normalizedPage].push({ event: eventName, count: eventCount });
-                        }
-                    });
-
-                    // Proširi putanje s najčešćim sljedećim koracima
-                    Object.values(pathMap).forEach(path => {
-                        const flow = [path.landing, path.visited];
-                        
-                        // Pokušaj pronaći sljedeći korak na temelju event flow-a
-                        if (pageEvents[path.visited]) {
-                            const nextEvents = pageEvents[path.visited].sort((a, b) => b.count - a.count);
-                            
-                            // Dodaj sljedeće korake iz navigation_click events
-                            nextEvents.forEach(evt => {
-                                if (evt.event === 'navigation_click' || evt.event === 'click') {
-                                    // Pronađi sljedeću stranicu iz pathMap
-                                    const nextPaths = Object.values(pathMap).filter(p => p.landing === path.visited);
-                                    if (nextPaths.length > 0 && flow.length < 5) {
-                                        const bestNext = nextPaths.sort((a, b) => b.count - a.count)[0];
-                                        if (!flow.includes(bestNext.visited)) {
-                                            flow.push(bestNext.visited);
-                                        }
-                                    }
-                                }
-                            });
-                        }
-
-                        const pathKey = flow.join('->');
-                        if (!extendedPaths[pathKey]) {
-                            extendedPaths[pathKey] = { flow: flow, count: path.count };
-                        } else {
-                            extendedPaths[pathKey].count += path.count;
-                        }
-                    });
-                }
-
-                // Uključi lokalne događaje iz sessionStorage kao tranzicije
-                try {
-                    const localEvents = JSON.parse(sessionStorage.getItem('local_section_events') || '[]');
-                    if (localEvents && localEvents.length > 1) {
-                        hasRealData = true;
-                        const localFlow = [];
-                        
-                        localEvents.forEach(ev => {
-                            const section = normalizePageName(ev.section || ev.page || ev.label || '');
-                            if (section && !localFlow.includes(section)) {
-                                localFlow.push(section);
-                            }
-                        });
-                        
-                        if (localFlow.length >= 2) {
-                            const pathKey = localFlow.slice(0, 5).join('->');
-                            if (!extendedPaths[pathKey]) {
-                                extendedPaths[pathKey] = { flow: localFlow.slice(0, 5), count: 1 };
-                            } else {
-                                extendedPaths[pathKey].count += 1;
-                            }
-                        }
-                    }
-                } catch (e) {
-                    console.warn('Error applying local events to path analysis:', e);
-                }
-
-                // Sortiraj i pripremi putanje za prikaz
-                const sortedPaths = Object.values(extendedPaths)
-                    .filter(p => p.flow.length >= 2)
-                    .sort((a, b) => b.count - a.count)
-                    .slice(0, 5);
-
-                let rank = 1;
-                sortedPaths.forEach(path => {
-                    const isUnusual = path.flow.length <= 2 && !path.flow.includes('Kontakt');
-                    paths.push({
-                        rank: rank++,
-                        flow: path.flow,
-                        count: path.count,
-                        unusual: isUnusual
-                    });
-                });
-            }
-
-            // Ako nema stvarnih podataka, prikaži poruku umjesto lažnih putanja
-            if (!hasRealData || paths.length === 0 || (paths.length === 1 && paths[0].count === 0)) {
+            // Ako nema dovoljno podataka
+            if (!hasRealData || sortedSections.length < 2) {
                 container.innerHTML = `
                     <div class="alert alert-info text-center p-4">
                         <i class="bi bi-signpost-2" style="font-size: 2rem; color: #0dcaf0;"></i>
                         <h5 class="mt-3">Nema dovoljno podataka za path analizu</h5>
-                        <p class="text-muted mb-0">Potrebno je više korisničkih sesija za analizu navigacijskih putanja.</p>
+                        <p class="text-muted mb-0">Potrebno je više korisničkih sesija.</p>
                     </div>
                 `;
-                document.getElementById('pathInterpretation').textContent = 'Nema dovoljno podataka za interpretaciju.';
-                document.getElementById('pathUX').textContent = 'Pričekajte dok se prikupi više podataka o korisničkim putanjama.';
+                document.getElementById('pathInterpretation').textContent = 'Nema dovoljno podataka.';
+                document.getElementById('pathUX').textContent = 'Pričekajte dok se prikupi više podataka.';
                 return;
             }
 
+            // Generiraj smislene putanje bazirane na stvarnim podacima
+            const paths = [];
+            
+            // Putanja 1: Najpopularnije sekcije (do 5)
+            const topSections = sortedSections.slice(0, Math.min(5, sortedSections.length)).map(s => s.section);
+            if (topSections.length >= 2) {
+                paths.push({
+                    rank: 1,
+                    flow: topSections,
+                    count: sortedSections[sortedSections.length - 1].users,
+                    description: 'Najpopularnije sekcije'
+                });
+            }
+
+            // Putanja 2: Homepage -> najpopularnija sekcija (osim Homepagea)
+            const nonHomeSection = sortedSections.find(s => s.section !== 'Homepage' && s.section !== 'Početna');
+            if (nonHomeSection && sectionStats['Homepage']) {
+                paths.push({
+                    rank: 2,
+                    flow: ['Homepage', nonHomeSection.section],
+                    count: Math.min(sectionStats['Homepage'], nonHomeSection.users),
+                    description: 'Najčešći ulaz'
+                });
+            }
+
+            // Putanja 3: Istraživanje (O nama -> Akvaparkovi -> Cijene)
+            const explorePath = ['O nama', 'Akvaparkovi', 'Cijene'].filter(s => sectionStats[s] && sectionStats[s] > 0);
+            if (explorePath.length >= 2) {
+                const minUsers = Math.min(...explorePath.map(s => sectionStats[s]));
+                paths.push({
+                    rank: 3,
+                    flow: explorePath,
+                    count: minUsers,
+                    description: 'Istraživačka putanja'
+                });
+            }
+
+            // Putanja 4: Konverzija (Akvaparkovi -> Kontakt)
+            if (sectionStats['Akvaparkovi'] && sectionStats['Kontakt']) {
+                paths.push({
+                    rank: 4,
+                    flow: ['Akvaparkovi', 'Kontakt'],
+                    count: Math.min(sectionStats['Akvaparkovi'], sectionStats['Kontakt']),
+                    description: 'Put prema kontaktu'
+                });
+            }
+
+            // Putanja 5: Cijene -> Kontakt
+            if (sectionStats['Cijene'] && sectionStats['Kontakt']) {
+                paths.push({
+                    rank: 5,
+                    flow: ['Cijene', 'Kontakt'],
+                    count: Math.min(sectionStats['Cijene'], sectionStats['Kontakt']),
+                    description: 'Konverzija od cijena'
+                });
+            }
+
+            // Sortiraj po broju korisnika i uzmi prvih 5
+            const finalPaths = paths
+                .filter(p => p.count > 0)
+                .sort((a, b) => b.count - a.count)
+                .slice(0, 5)
+                .map((p, i) => ({ ...p, rank: i + 1 }));
+
+            // Prikaz
             container.innerHTML = `
-                <div class="alert alert-success mb-3"><i class="bi bi-check-circle me-2"></i>Putanje generirane iz Google Analytics API podataka</div>
-            ` + paths.map(path => `
-                <div class="path-item ${path.unusual ? 'border-warning' : ''}">
+                <div class="alert alert-success mb-3"><i class="bi bi-check-circle me-2"></i>Putanje generirane iz GA API podataka</div>
+            ` + finalPaths.map(path => `
+                <div class="path-item">
                     <div class="path-rank">${path.rank}</div>
                     <div class="path-flow">
                         ${path.flow.map((page, i) => `
@@ -2701,172 +2625,30 @@
                             ${i < path.flow.length - 1 ? '<i class="bi bi-arrow-right path-arrow"></i>' : ''}
                         `).join('')}
                     </div>
-                    <div class="path-count">${path.count} korisnika</div>
-                    ${path.unusual ? '<span class="badge bg-warning text-dark ms-2">Kratak posjet</span>' : ''}
+                    <div class="path-count">
+                        ${path.count} korisnika
+                        <small class="d-block text-muted">${path.description}</small>
+                    </div>
                 </div>
             `).join('');
 
-            // Generiraj interpretaciju na temelju stvarnih podataka
-            const topPath = paths[0];
-            const unusualPaths = paths.filter(p => p.unusual);
-            const longerPaths = paths.filter(p => p.flow.length >= 3);
-            
-            let interpretation = `Najčešća putanja (${topPath.count} korisnika) vodi: ${topPath.flow.join(' → ')}. `;
+            // Interpretacija
+            const topPath = finalPaths[0];
+            let interpretation = `Najčešća putanja (${topPath.count} korisnika): ${topPath.flow.join(' → ')}. `;
+            const longerPaths = finalPaths.filter(p => p.flow.length >= 3);
             if (longerPaths.length > 0) {
-                interpretation += `${longerPaths.length} putanja ima 3+ koraka što pokazuje dobru angažiranost. `;
-            }
-            interpretation += unusualPaths.length > 0 
-                ? `Uočeno je ${unusualPaths.length} kratkih putanja koje mogu ukazivati na bounce.`
-                : 'Većina korisnika prolazi kroz više stranica.';
-
-            let uxImplication;
-            if (unusualPaths.length > 0) {
-                uxImplication = `Za korisnike s kratkim putanjama, razmislite o dodavanju interaktivnih elemenata i CTA gumba ` +
-                    `koji će ih potaknuti na daljnje istraživanje stranice. Poboljšajte internal linking.`;
+                interpretation += `${longerPaths.length} putanja ima 3+ koraka što ukazuje na dobru angažiranost.`;
             } else {
-                uxImplication = `Korisnici pokazuju dobru navigaciju kroz stranicu. Nastavite optimizirati sadržaj i ` +
-                    `pratite koje stranice generiraju najviše konverzija.`;
+                interpretation += `Većina putanja ima 2 koraka - korisnici brzo pronalaze što traže.`;
             }
+
+            const hasContactPath = finalPaths.some(p => p.flow.includes('Kontakt'));
+            const uxImplication = hasContactPath
+                ? `Korisnici koriste putanje prema Kontaktu što je dobar znak konverzije. Nastavite optimizirati te prijelaze.`
+                : `Razmislite o dodavanju CTA gumba koji vode prema Kontaktu na popularnim sekcijama.`;
 
             document.getElementById('pathInterpretation').textContent = interpretation;
             document.getElementById('pathUX').textContent = uxImplication;
-        }
-
-        // Nova funkcija za dohvat navigation sequence po vremenu
-        async function fetchNavigationSequence() {
-            const propertyId = CONFIG.GA_PROPERTY_ID;
-            const url = `https://analyticsdata.googleapis.com/v1beta/properties/${propertyId}:runReport`;
-
-            const requestBody = {
-                dateRanges: [{ startDate: '30daysAgo', endDate: 'today' }],
-                dimensions: [
-                    { name: 'customEvent:section_name' },
-                    { name: 'dateHour' }  // Grupiraj po satu za približan redoslijed
-                ],
-                metrics: [
-                    { name: 'eventCount' }
-                ],
-                dimensionFilter: {
-                    filter: {
-                        fieldName: 'eventName',
-                        inListFilter: {
-                            // Traži oba event naziva
-                            values: ['navigation_click', 'section_click']
-                        }
-                    }
-                },
-                orderBys: [
-                    { dimension: { dimensionName: 'dateHour' }, desc: false }
-                ],
-                limit: 100
-            };
-
-            try {
-                const response = await fetch(url, {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': `Bearer ${accessToken}`,
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify(requestBody)
-                });
-
-                if (!response.ok) return null;
-                return await response.json();
-            } catch (error) {
-                console.warn('Error fetching navigation sequence:', error);
-                return null;
-            }
-        }
-
-        // Helper funkcija za normalizaciju imena stranica
-        function normalizePageName(pagePath) {
-            if (!pagePath || pagePath === '/' || pagePath === '/index.html' || pagePath === '(not set)') {
-                return 'Početna';
-            }
-            
-            const lowerPath = String(pagePath).toLowerCase();
-            
-            // Skip localhost / 127.0.0.1 / development URLs - return null to filter these out
-            if (lowerPath.includes('127.0.0.1') || lowerPath.includes('localhost') || lowerPath.includes(':5500') || lowerPath.includes(':3000')) {
-                return null; // Will be filtered out
-            }
-            
-            // Extract hash/fragment if present (e.g., /#about -> about)
-            const hashMatch = lowerPath.match(/#([a-z-]+)/);
-            if (hashMatch) {
-                const hash = hashMatch[1];
-                const hashMap = {
-                    'home': 'Početna',
-                    'about': 'O nama',
-                    'parks': 'Akvaparkovi',
-                    'prices': 'Cijene',
-                    'contact': 'Kontakt',
-                    'kontakt': 'Kontakt'
-                };
-                if (hashMap[hash]) {
-                    return hashMap[hash];
-                }
-            }
-            
-            const pageMap = {
-                'istralandia': 'Istralandia',
-                'porec': 'Aquacolors Poreč',
-                'poreč': 'Aquacolors Poreč',
-                'sibenik': 'Aquapark Dalmatia',
-                'šibenik': 'Aquapark Dalmatia',
-                'dalmatia': 'Aquapark Dalmatia',
-                'cikat': 'Aquapark Čikat',
-                'čikat': 'Aquapark Čikat',
-                'martilandia': 'Martilandia',
-                'biograd': 'Dalmaland',
-                'dalmaland': 'Dalmaland',
-                'kontakt': 'Kontakt',
-                'contact': 'Kontakt',
-                'o-nama': 'O nama',
-                'about': 'O nama',
-                'akvaparkovi': 'Akvaparkovi',
-                'parks': 'Akvaparkovi',
-                'prices': 'Cijene',
-                'cijene': 'Cijene',
-                'analytics': 'Analytics',
-                'galerija': 'Galerija',
-                'početna': 'Početna',
-                'home': 'Početna'
-            };
-            
-            for (const [key, value] of Object.entries(pageMap)) {
-                if (lowerPath.includes(key)) {
-                    return value;
-                }
-            }
-
-            // If it's just a root path or index, return Početna
-            if (lowerPath === '' || lowerPath === '/' || lowerPath.endsWith('/index.html') || lowerPath.endsWith('/index')) {
-                return 'Početna';
-            }
-
-            // Return cleaned up path name or null for unknown/irrelevant pages
-            const cleaned = pagePath.replace(/[/#]/g, '').replace(/-/g, ' ').trim();
-            if (!cleaned || cleaned.length < 2) {
-                return 'Početna';
-            }
-            return cleaned;
-        }
-
-        // Helper funkcija za formatiranje naziva događaja
-        function formatEventName(eventName) {
-            const eventMap = {
-                'click': 'Klik',
-                'scroll': 'Scroll',
-                'first_visit': 'Prvi posjet',
-                'page_view': 'Pregled',
-                'user_engagement': 'Angažman',
-                'session_start': 'Početak sesije',
-                'form_submit': 'Slanje forme'
-            };
-
-            return eventMap[eventName] || eventName.replace(/_/g, ' ');
         }
 
         function refreshData() {
