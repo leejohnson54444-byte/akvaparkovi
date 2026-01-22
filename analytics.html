@@ -2099,8 +2099,6 @@
                         <p class="text-muted mb-0">Potrebno je više korisničkih sesija za prikaz funnel analize.</p>
                     </div>
                 `;
-                document.getElementById('funnelInterpretation').textContent = 'Nema dovoljno podataka za interpretaciju.';
-                document.getElementById('funnelUX').textContent = 'Pričekajte dok se prikupi više podataka o korisničkom ponašanju.';
                 return;
             }
 
@@ -2197,9 +2195,6 @@
                 : maxDropRate > 30 
                     ? `Umjeren drop-off. Testirajte različite verzije navigacije za poboljšanje.`
                     : `Dobra distribucija korisnika. Nastavite pratiti i optimizirati sadržaj.`;
-
-            document.getElementById('funnelInterpretation').textContent = interpretation;
-            document.getElementById('funnelUX').textContent = uxImplication;
         }
 
         // Dohvaćanje podataka za retention analizu korištenjem stvarnih GA4 metrika
@@ -2268,8 +2263,6 @@
                         </td>
                     </tr>
                 `;
-                document.getElementById('retentionInterpretation').textContent = 'Nema dovoljno podataka za interpretaciju.';
-                document.getElementById('retentionUX').textContent = 'Pričekajte dok se prikupi više podataka.';
                 return;
             }
 
@@ -2389,9 +2382,6 @@
             } else {
                 uxImplication = `Za povećanje vraćanja razmislite o newsletteru ili redovitom ažuriranju sadržaja.`;
             }
-
-            document.getElementById('retentionInterpretation').textContent = interpretation;
-            document.getElementById('retentionUX').textContent = uxImplication;
         }
 
         function getRetentionClass(value) {
@@ -2489,8 +2479,6 @@
                         <p class="text-muted mb-0">Potrebno je više korisničkih sesija.</p>
                     </div>
                 `;
-                document.getElementById('pathInterpretation').textContent = 'Nema dovoljno podataka.';
-                document.getElementById('pathUX').textContent = 'Pričekajte dok se prikupi više podataka.';
                 return;
             }
 
@@ -2591,9 +2579,6 @@
             const uxImplication = hasContactPath
                 ? `Korisnici koriste putanje prema Kontaktu što je dobar znak konverzije. Nastavite optimizirati te prijelaze.`
                 : `Razmislite o dodavanju CTA gumba koji vode prema Kontaktu na popularnim sekcijama.`;
-
-            document.getElementById('pathInterpretation').textContent = interpretation;
-            document.getElementById('pathUX').textContent = uxImplication;
         }
 
         function refreshData() {
