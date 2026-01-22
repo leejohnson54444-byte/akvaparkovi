@@ -877,8 +877,7 @@
                     analyticsData = processRealData(realData);
                     document.getElementById('dataNote').innerHTML = 
                         '<i class="bi bi-check-circle me-2" style="color: #28a745;"></i>' +
-                        'Podaci su dohvaćeni iz Google Analytics API-ja.' +
-                        `<br><small class="text-muted">Dohvaćeno ${realData.rows.length} redaka podataka za property ${CONFIG.GA_PROPERTY_ID}</small>`;
+                        'Podaci su dohvaćeni iz Google Analytics API-ja.';
                     document.getElementById('dataNote').style.background = '#d4edda';
                     document.getElementById('dataNote').style.border = '1px solid #c3e6cb';
                     
@@ -1295,13 +1294,6 @@
             document.getElementById('avgDuration').textContent = formatDuration(analyticsData.avgDuration);
             document.getElementById('bounceRate').textContent = (typeof analyticsData.bounceRate === 'number' ? analyticsData.bounceRate.toFixed(1) : analyticsData.bounceRate) + '%';
             document.getElementById('totalEvents').textContent = analyticsData.totalEvents.toLocaleString();
-
-            document.getElementById('usersChange').innerHTML = '<span class="text-muted">Podaci iz Google Analytics</span>';
-            document.getElementById('sessionsChange').innerHTML = '<span class="text-muted">Podaci iz Google Analytics</span>';
-            document.getElementById('pageviewsChange').innerHTML = '<span class="text-muted">Podaci iz Google Analytics</span>';
-            document.getElementById('durationChange').innerHTML = '<span class="text-muted">Podaci iz Google Analytics</span>';
-            document.getElementById('bounceChange').innerHTML = '<span class="text-muted">Podaci iz Google Analytics</span>';
-            document.getElementById('eventsChange').innerHTML = '<span class="text-muted">Podaci iz Google Analytics</span>';
         }
 
         function formatDuration(seconds) {
@@ -1655,7 +1647,6 @@
                 noteEl.innerHTML = '<i class="bi bi-info-circle me-1"></i>Nema zabilježenih podataka o pregledima sekcija u zadnjih 30 dana.';
             } else {
                 const totalClicks = data.reduce((a, b) => a + b, 0);
-                noteEl.innerHTML = `<i class="bi bi-check-circle text-success me-1"></i>Ukupno ${totalClicks} pregleda sekcija u zadnjih 30 dana. <span class="badge bg-success">GA API podaci</span>`;
             }
             
             charts.sectionClicks = new Chart(ctx, {
@@ -1925,9 +1916,6 @@
 
             // Prikaži preporuke samo ako imamo stvarne podatke
             container.innerHTML = `
-                <div class="col-12 mb-3">
-                    <span class="badge bg-success"><i class="bi bi-check-circle me-1"></i>Bazirano na stvarnim podacima iz Google Analytics</span>
-                </div>
             ` + topRecommendations.map((park, index) => `
                 <div class="col-md-4">
                     <div class="recommendation-card">
@@ -2107,7 +2095,6 @@
 
             // Generiraj HTML s poravnatim barsovima i drop-off za svaki korak
             container.innerHTML = `
-                <div class="alert alert-success mb-3"><i class="bi bi-check-circle me-2"></i>Podaci iz Google Analytics API-ja</div>
                 <div class="funnel-wrapper">
                     ${validSteps.map((step, index) => {
                         // Izračunaj drop-off od prethodnog koraka
@@ -2343,9 +2330,7 @@
                 });
             }
 
-            tableBody.innerHTML = `
-                <tr><td colspan="5" class="text-success"><i class="bi bi-check-circle me-2"></i>Podaci iz GA API-ja (zadnjih 30 dana)</td></tr>
-            ` + retentionRows.map(row => `
+            tableBody.innerHTML = `` + retentionRows.map(row => `
                 <tr>
                     <td><strong>${row.segment}</strong></td>
                     <td>${row.total}</td>
@@ -2547,9 +2532,7 @@
                 .map((p, i) => ({ ...p, rank: i + 1 }));
 
             // Prikaz
-            container.innerHTML = `
-                <div class="alert alert-success mb-3"><i class="bi bi-check-circle me-2"></i>Putanje generirane iz GA API podataka</div>
-            ` + finalPaths.map(path => `
+            container.innerHTML = `` + finalPaths.map(path => `
                 <div class="path-item">
                     <div class="path-rank">${path.rank}</div>
                     <div class="path-flow">
