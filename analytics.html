@@ -427,32 +427,6 @@
             border-radius: 4px;
         }
 
-        .interpretation-box {
-            background: #e8f4fd;
-            border-left: 4px solid var(--primary-dark);
-            padding: 20px;
-            border-radius: 0 10px 10px 0;
-            margin-top: 20px;
-        }
-
-        .interpretation-box h5 {
-            color: var(--primary-dark);
-            margin-bottom: 10px;
-        }
-
-        .ux-implications {
-            background: #fff3cd;
-            border-left: 4px solid #ffc107;
-            padding: 20px;
-            border-radius: 0 10px 10px 0;
-            margin-top: 15px;
-        }
-
-        .ux-implications h5 {
-            color: #856404;
-            margin-bottom: 10px;
-        }
-
         .data-note {
             background: #f8d7da;
             border: 1px solid #f5c6cb;
@@ -660,11 +634,6 @@
                 
                 <div class="row g-4" id="recommendationsContainer">
                 </div>
-
-                <div class="interpretation-box mt-4">
-                    <h5><i class="bi bi-lightbulb me-2"></i>Kako funkcionira sustav preporuka?</h5>
-                    <p class="mb-0">Sustav koristi <strong>content-based filtering</strong> pristup kombiniran s <strong>Cosine Similarity</strong> algoritmom. Analiziramo koje stranice ste posjetili, koliko vremena ste proveli na svakoj, te koje događaje ste pokrenuli (klikovi, scrollanje, interakcije s galerijom). Na temelju tih podataka izračunavamo sličnost s profilima akvaparkova i preporučujemo one koji najbolje odgovaraju vašim interesima.</p>
-                </div>
             </div>
         </div>
 
@@ -682,15 +651,7 @@
                     <div id="funnelContainer">
                     </div>
 
-                    <div class="interpretation-box">
-                        <h5><i class="bi bi-lightbulb me-2"></i>Interpretacija</h5>
-                        <p class="mb-0" id="funnelInterpretation">Učitavanje analize...</p>
-                    </div>
-
-                    <div class="ux-implications">
-                        <h5><i class="bi bi-brush me-2"></i>UX implikacije</h5>
-                        <p class="mb-0" id="funnelUX">Učitavanje...</p>
-                    </div>
+                    <!-- Interpretation and UX implication sections removed -->
                 </div>
 
                 <div class="analysis-card">
@@ -711,15 +672,7 @@
                         </tbody>
                     </table>
 
-                    <div class="interpretation-box">
-                        <h5><i class="bi bi-lightbulb me-2"></i>Interpretacija</h5>
-                        <p class="mb-0" id="retentionInterpretation">Učitavanje analize...</p>
-                    </div>
-
-                    <div class="ux-implications">
-                        <h5><i class="bi bi-brush me-2"></i>UX implikacije</h5>
-                        <p class="mb-0" id="retentionUX">Učitavanje...</p>
-                    </div>
+                    <!-- Interpretation and UX implication sections removed -->
                 </div>
 
                 <div class="analysis-card">
@@ -729,15 +682,7 @@
                     <div id="pathContainer">
                     </div>
 
-                    <div class="interpretation-box">
-                        <h5><i class="bi bi-lightbulb me-2"></i>Interpretacija</h5>
-                        <p class="mb-0" id="pathInterpretation">Učitavanje analize...</p>
-                    </div>
-
-                    <div class="ux-implications">
-                        <h5><i class="bi bi-brush me-2"></i>UX implikacije</h5>
-                        <p class="mb-0" id="pathUX">Učitavanje...</p>
-                    </div>
+                    <!-- Interpretation and UX implication sections removed -->
                 </div>
             </div>
         </div>
@@ -932,7 +877,7 @@
                     analyticsData = processRealData(realData);
                     document.getElementById('dataNote').innerHTML = 
                         '<i class="bi bi-check-circle me-2" style="color: #28a745;"></i>' +
-                        '<strong>Stvarni podaci:</strong> Podaci su uspješno dohvaćeni iz Google Analytics API-ja.' +
+                        'Podaci su dohvaćeni iz Google Analytics API-ja.' +
                         `<br><small class="text-muted">Dohvaćeno ${realData.rows.length} redaka podataka za property ${CONFIG.GA_PROPERTY_ID}</small>`;
                     document.getElementById('dataNote').style.background = '#d4edda';
                     document.getElementById('dataNote').style.border = '1px solid #c3e6cb';
@@ -1351,12 +1296,12 @@
             document.getElementById('bounceRate').textContent = (typeof analyticsData.bounceRate === 'number' ? analyticsData.bounceRate.toFixed(1) : analyticsData.bounceRate) + '%';
             document.getElementById('totalEvents').textContent = analyticsData.totalEvents.toLocaleString();
 
-            document.getElementById('usersChange').innerHTML = '<span class="text-muted">Stvarni podaci</span>';
-            document.getElementById('sessionsChange').innerHTML = '<span class="text-muted">Stvarni podaci</span>';
-            document.getElementById('pageviewsChange').innerHTML = '<span class="text-muted">Stvarni podaci</span>';
-            document.getElementById('durationChange').innerHTML = '<span class="text-muted">Stvarni podaci</span>';
-            document.getElementById('bounceChange').innerHTML = '<span class="text-muted">Stvarni podaci</span>';
-            document.getElementById('eventsChange').innerHTML = '<span class="text-muted">Stvarni podaci</span>';
+            document.getElementById('usersChange').innerHTML = '<span class="text-muted">Podaci iz Google Analytics</span>';
+            document.getElementById('sessionsChange').innerHTML = '<span class="text-muted">Podaci iz Google Analytics</span>';
+            document.getElementById('pageviewsChange').innerHTML = '<span class="text-muted">Podaci iz Google Analytics</span>';
+            document.getElementById('durationChange').innerHTML = '<span class="text-muted">Podaci iz Google Analytics</span>';
+            document.getElementById('bounceChange').innerHTML = '<span class="text-muted">Podaci iz Google Analytics</span>';
+            document.getElementById('eventsChange').innerHTML = '<span class="text-muted">Podaci iz Google Analytics</span>';
         }
 
         function formatDuration(seconds) {
@@ -2164,7 +2109,7 @@
 
             // Generiraj HTML s poravnatim barsovima i drop-off za svaki korak
             container.innerHTML = `
-                <div class="alert alert-success mb-3"><i class="bi bi-check-circle me-2"></i>Stvarni podaci iz Google Analytics API-ja</div>
+                <div class="alert alert-success mb-3"><i class="bi bi-check-circle me-2"></i>Podaci iz Google Analytics API-ja</div>
                 <div class="funnel-wrapper">
                     ${validSteps.map((step, index) => {
                         // Izračunaj drop-off od prethodnog koraka
@@ -2406,7 +2351,7 @@
             }
 
             tableBody.innerHTML = `
-                <tr><td colspan="5" class="text-success"><i class="bi bi-check-circle me-2"></i>Stvarni podaci iz GA API-ja (zadnjih 30 dana)</td></tr>
+                <tr><td colspan="5" class="text-success"><i class="bi bi-check-circle me-2"></i>Podaci iz GA API-ja (zadnjih 30 dana)</td></tr>
             ` + retentionRows.map(row => `
                 <tr>
                     <td><strong>${row.segment}</strong></td>
