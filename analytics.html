@@ -1993,39 +1993,14 @@
         async function generateFunnelAnalysis() {
             const container = document.getElementById('funnelContainer');
             
-            // Definiraj korake funnel-a prema stvarnim pageTitle vrijednostima iz GA
-            // Koriste se samo stranice koje GA API stvarno prati
+            // Definiraj idealni korisnički tok funnel-a (točno redoslijed):
+            // Homepage -> O nama -> Akvaparkovi -> Cijene -> Kontakt
             const funnelSteps = [
-                { 
-                    step: 'Homepage', 
-                    pageTitles: ['Akvaparkovi u Hrvatskoj'],
-                    description: 'Direktan pristup'
-                },
-                { 
-                    step: 'Početna', 
-                    pageTitles: ['Akvaparkovi u Hrvatskoj - Početna'],
-                    description: 'Sekcija #home'
-                },
-                { 
-                    step: 'O nama', 
-                    pageTitles: ['Akvaparkovi u Hrvatskoj - O nama'],
-                    description: 'Sekcija O nama'
-                },
-                { 
-                    step: 'Akvaparkovi', 
-                    pageTitles: ['Akvaparkovi u Hrvatskoj - Akvaparkovi'],
-                    description: 'Sekcija #parks'
-                },
-                { 
-                    step: 'Cijene', 
-                    pageTitles: ['Akvaparkovi u Hrvatskoj - Cijene'],
-                    description: 'Sekcija Cijene'
-                },
-                { 
-                    step: 'Kontakt', 
-                    pageTitles: ['Akvaparkovi u Hrvatskoj - Kontakt'],
-                    description: 'Sekcija Kontakt'
-                }
+                { step: 'Homepage', pageTitles: ['Akvaparkovi u Hrvatskoj'], description: 'Početna stranica' },
+                { step: 'O nama', pageTitles: ['Akvaparkovi u Hrvatskoj - O nama'], description: 'Sekcija O nama' },
+                { step: 'Akvaparkovi', pageTitles: ['Akvaparkovi u Hrvatskoj - Akvaparkovi'], description: 'Sekcija Akvaparkovi' },
+                { step: 'Cijene', pageTitles: ['Akvaparkovi u Hrvatskoj - Cijene'], description: 'Sekcija Cijene' },
+                { step: 'Kontakt', pageTitles: ['Akvaparkovi u Hrvatskoj - Kontakt'], description: 'Sekcija Kontakt' }
             ];
 
             let funnelData = null;
